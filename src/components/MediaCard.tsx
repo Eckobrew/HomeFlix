@@ -10,6 +10,8 @@ interface MediaCardProps {
   onOpenModal: (item: MediaItem) => void;
   onRequest?: (item: MediaItem) => void;
   rankNumber?: number; // For Top 10 rows!
+  isFirst?: boolean;
+  isLast?: boolean;
 }
 
 export const MediaCard: React.FC<MediaCardProps> = ({
@@ -18,12 +20,18 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   onOpenModal,
   onRequest,
   rankNumber,
+  isFirst = false,
+  isLast = false,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const [isPreviewMuted, setIsPreviewMuted] = useState(true);
+  const [alignment, setAlignment] = useState<'left' | 'center' | 'right'>(
+    isFirst ? 'left' : isLast ? 'right' : 'center'
+  );
 
+  const cardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -34,6 +42,30 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
   // Smooth hover intent delay & preview trigger
   const handleMouseEnter = () => {
+    // Dynamically calculate whether the card is at the edge of the visible scroll track
+    if (cardRef.current) {
+      const cardRect = cardRef.current.getBoundingClientRect();
+      const parentScroll = cardRef.current.closest('.overflow-x-auto');
+      if (parentScroll) {
+        const parentRect = parentScroll.getBoundingClientRect();
+        if (cardRect.left - parentRect.left < 60) {
+          setAlignment('left');
+        } else if (parentRect.right - cardRect.right < 60) {
+          setAlignment('right');
+        } else {
+          setAlignment('center');
+        }
+      } else {
+        if (cardRect.left < 80) {
+          setAlignment('left');
+        } else if (window.innerWidth - cardRect.right < 80) {
+          setAlignment('right');
+        } else {
+          setAlignment('center');
+        }
+      }
+    }
+
     hoverTimeoutRef.current = setTimeout(() => {
       setIsHovered(true);
 
@@ -102,6 +134,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
   return (
     <div
+      ref={cardRef}
       className="relative shrink-0 select-none group cursor-pointer"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -183,8 +216,13 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       {/* Floating Hover Card with Random Section Video Preview */}
       {isHovered && !rankNumber && (
         <div
-          className="hidden md:block absolute -top-24 md:-top-28 -left-6 md:-left-8 z-50 w-72 md:w-80 bg-[#181818] rounded-md shadow-[0_22px_50px_rgba(0,0,0,0.98)] overflow-hidden border border-neutral-700/80 animate-fade-in pointer-events-auto"
-          style={{ transformOrigin: 'center center' }}
+          className={`hidden md:block absolute -top-24 md:-top-28 z-50 w-72 md:w-80 bg-[#181818] rounded-md shadow-[0_22px_50px_rgba(0,0,0,0.98)] overflow-hidden border border-neutral-700/80 animate-fade-in pointer-events-auto ${
+            alignment === 'left'
+              ? 'left-0 origin-left'
+              : alignment === 'right'
+              ? 'right-0 origin-right'
+              : '-left-6 md:-left-8 origin-center'
+          }`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Card Media Header with Live Video Preview */}

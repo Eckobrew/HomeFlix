@@ -54,12 +54,12 @@ export const MediaRow: React.FC<MediaRowProps> = ({
       </div>
 
       {/* Row Container with negative margin so rows maintain compact spacing */}
-      <div className="relative -my-24 md:-my-28">
+      <div className="relative -my-24 md:-my-28 pointer-events-none">
         {/* Left Arrow Button */}
         {showLeftArrow && (
           <button
             onClick={() => scroll('left')}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 w-10 md:w-12 h-28 md:h-36 bg-black/75 hover:bg-black/95 text-white flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 rounded-r shadow-2xl"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-30 w-10 md:w-12 h-28 md:h-36 bg-black/75 hover:bg-black/95 text-white flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 rounded-r shadow-2xl pointer-events-auto"
             aria-label="Scroll Left"
           >
             <ChevronLeft size={32} />
@@ -70,17 +70,20 @@ export const MediaRow: React.FC<MediaRowProps> = ({
         <div
           ref={rowRef}
           onScroll={handleScroll}
-          className="flex items-center space-x-2 md:space-x-3 overflow-x-auto no-scrollbar scroll-smooth py-28 md:py-32 px-1"
+          className="flex items-center space-x-2 md:space-x-3 overflow-x-auto no-scrollbar scroll-smooth py-28 md:py-32 px-2 md:px-3 pointer-events-none"
         >
           {items.map((item, index) => (
-            <MediaCard
-              key={`${item.id}-${index}`}
-              item={item}
-              rankNumber={isTop10 ? index + 1 : undefined}
-              onPlay={onPlay}
-              onOpenModal={onOpenModal}
-              onRequest={onRequest}
-            />
+            <div key={`${item.id}-${index}`} className="shrink-0 pointer-events-auto">
+              <MediaCard
+                item={item}
+                rankNumber={isTop10 ? index + 1 : undefined}
+                isFirst={index === 0}
+                isLast={index === items.length - 1}
+                onPlay={onPlay}
+                onOpenModal={onOpenModal}
+                onRequest={onRequest}
+              />
+            </div>
           ))}
         </div>
 
@@ -88,7 +91,7 @@ export const MediaRow: React.FC<MediaRowProps> = ({
         {showRightArrow && (
           <button
             onClick={() => scroll('right')}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-10 md:w-12 h-28 md:h-36 bg-black/75 hover:bg-black/95 text-white flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 rounded-l shadow-2xl"
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-30 w-10 md:w-12 h-28 md:h-36 bg-black/75 hover:bg-black/95 text-white flex items-center justify-center opacity-0 group-hover/row:opacity-100 transition-opacity duration-300 rounded-l shadow-2xl pointer-events-auto"
             aria-label="Scroll Right"
           >
             <ChevronRight size={32} />

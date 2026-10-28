@@ -169,9 +169,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       )}
 
       {/* Content Container */}
-      <div className="relative z-10 h-full flex flex-col justify-end px-4 md:px-12 pb-24 md:pb-32 max-w-3xl space-y-3 md:space-y-4">
+      <div className="relative z-30 h-full flex flex-col justify-end px-4 md:px-12 pb-24 md:pb-32 max-w-3xl space-y-3 md:space-y-4 pointer-events-none">
         {/* Type / Series Badge */}
-        <div className="flex items-center space-x-2 text-xs font-bold tracking-widest text-red-500 uppercase">
+        <div className="flex items-center space-x-2 text-xs font-bold tracking-widest text-red-500 uppercase pointer-events-auto">
           <span className="bg-red-600 text-white px-1.5 py-0.5 rounded text-[10px] tracking-normal font-black">
             HF
           </span>
@@ -184,13 +184,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         {/* Title */}
         <h1
           key={`title-${currentItem.id}`}
-          className="text-3xl sm:text-5xl md:text-6xl font-black text-white drop-shadow-md tracking-tight leading-tight animate-fade-in"
+          className="text-3xl sm:text-5xl md:text-6xl font-black text-white drop-shadow-md tracking-tight leading-tight animate-fade-in pointer-events-auto"
         >
           {currentItem.title}
         </h1>
 
         {/* Metadata Row */}
-        <div className="flex items-center space-x-3 text-sm font-semibold text-gray-200">
+        <div className="flex items-center space-x-3 text-sm font-semibold text-gray-200 pointer-events-auto">
           <span className="text-emerald-400">{currentItem.matchPercentage || 98}% Match</span>
           {currentItem.year && <span>{currentItem.year}</span>}
           <span className="border border-gray-400/60 px-1 py-0.2 text-xs rounded text-gray-300 font-normal">
@@ -206,13 +206,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         {/* Overview */}
         <p
           key={`overview-${currentItem.id}`}
-          className="text-sm md:text-base text-gray-200 line-clamp-3 md:line-clamp-4 leading-relaxed drop-shadow max-w-xl animate-fade-in"
+          className="text-sm md:text-base text-gray-200 line-clamp-3 md:line-clamp-4 leading-relaxed drop-shadow max-w-xl animate-fade-in pointer-events-auto"
         >
           {currentItem.overview}
         </p>
 
         {/* Action Buttons */}
-        <div className="flex items-center space-x-3 pt-2">
+        <div className="flex items-center space-x-3 pt-2 pointer-events-auto">
           {/* Play Button */}
           <button
             onClick={() => onPlay(currentItem)}
@@ -243,7 +243,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       </div>
 
       {/* Right side floating controls & Carousel Indicators */}
-      <div className="absolute right-4 md:right-12 bottom-24 md:bottom-32 z-10 flex flex-col items-end space-y-3">
+      <div className="absolute right-4 md:right-12 bottom-24 md:bottom-32 z-30 flex flex-col items-end space-y-3 pointer-events-auto">
         {/* Sound toggle & age rating */}
         <div className="flex items-center space-x-3">
           {showVideo && currentItem.videoStreamUrl && (

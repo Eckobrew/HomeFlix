@@ -87,11 +87,11 @@ export const MediaModal: React.FC<MediaModalProps> = ({
             className="w-full h-full object-cover"
           />
           {/* Cinematic Gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/40 to-transparent" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/40 to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent pointer-events-none" />
 
           {/* Action Row on Top of Hero */}
-          <div className="absolute bottom-6 left-6 md:left-10 z-10 space-y-3">
+          <div className="absolute bottom-6 left-6 md:left-10 z-30 space-y-3 pointer-events-auto">
             <h1 className="text-2xl sm:text-4xl font-black text-white drop-shadow-md">
               {currentItem.title}
             </h1>
