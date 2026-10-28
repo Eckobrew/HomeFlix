@@ -58,12 +58,23 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     return () => clearTimeout(timer);
   }, [currentItem]);
 
-  // Jump to random section between 15% and 75% of runtime
+  // If item has a resume playback position, start preview where the user left off!
+  // Otherwise jump to random section between 15% and 75% of runtime.
   const handleHeroLoadedMetadata = () => {
     if (!videoRef.current) return;
     const dur = videoRef.current.duration;
     let seekTime = 60;
-    if (dur && isFinite(dur) && dur > 60) {
+
+    if (currentItem.playbackPositionTicks && currentItem.playbackPositionTicks > 0) {
+      const resumeSecs = Math.floor(currentItem.playbackPositionTicks / 10000000);
+      if (dur && isFinite(dur)) {
+        seekTime = Math.min(resumeSecs, Math.max(0, dur - 5));
+      } else {
+        seekTime = resumeSecs;
+      }
+    } else if (currentItem.progressPercent && currentItem.progressPercent > 0 && dur && isFinite(dur)) {
+      seekTime = Math.floor((dur * currentItem.progressPercent) / 100);
+    } else if (dur && isFinite(dur) && dur > 60) {
       const startMin = dur * 0.15;
       const startMax = dur * 0.75;
       seekTime = Math.floor(startMin + Math.random() * (startMax - startMin));
@@ -128,6 +139,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           playsInline
           onLoadedMetadata={handleHeroLoadedMetadata}
           onTimeUpdate={handleHeroTimeUpdate}
+          onError={() => setShowVideo(false)}
           className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 animate-fade-in"
         />
       )}

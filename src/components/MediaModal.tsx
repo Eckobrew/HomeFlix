@@ -99,7 +99,10 @@ export const MediaModal: React.FC<MediaModalProps> = ({
             <div className="flex items-center space-x-3">
               {isAvailable ? (
                 <button
-                  onClick={() => onPlay(currentItem)}
+                  onClick={() => {
+                    const firstEp = currentItem.seasons?.flatMap((s) => s.episodes || []).find((ep) => ep.videoStreamUrl || ep.jellyfinId);
+                    onPlay(currentItem, firstEp);
+                  }}
                   className="flex items-center space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-6 py-2 rounded transition-transform active:scale-95 shadow"
                 >
                   <Play size={18} className="fill-black" />

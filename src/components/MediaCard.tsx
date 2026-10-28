@@ -54,13 +54,24 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     previewStartTimeRef.current = 0;
   };
 
-  // When preview video metadata loads, pick a RANDOM section between 15% and 75% of runtime!
+  // When preview video metadata loads:
+  // For Continue Watching / in-progress items, start preview EXACTLY where the user left off!
+  // Otherwise, pick a dynamic RANDOM section between 15% and 75% of runtime.
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     const dur = videoRef.current.duration;
     let seekTime = 45; // default 45s in
 
-    if (dur && isFinite(dur) && dur > 60) {
+    if (item.playbackPositionTicks && item.playbackPositionTicks > 0) {
+      const resumeSecs = Math.floor(item.playbackPositionTicks / 10000000);
+      if (dur && isFinite(dur)) {
+        seekTime = Math.min(resumeSecs, Math.max(0, dur - 5));
+      } else {
+        seekTime = resumeSecs;
+      }
+    } else if (item.progressPercent && item.progressPercent > 0 && dur && isFinite(dur)) {
+      seekTime = Math.floor((dur * item.progressPercent) / 100);
+    } else if (dur && isFinite(dur) && dur > 60) {
       // Pick random timestamp between 15% and 75% into the show/movie
       const minStart = dur * 0.15;
       const maxStart = dur * 0.75;
@@ -200,6 +211,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                 playsInline
                 onLoadedMetadata={handleLoadedMetadata}
                 onTimeUpdate={handleTimeUpdate}
+                onError={() => setIsPlayingPreview(false)}
                 className="absolute inset-0 w-full h-full object-cover animate-fade-in"
               />
             )}

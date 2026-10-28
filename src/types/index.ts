@@ -12,6 +12,7 @@ export interface Episode {
   thumbnailUrl: string;
   playbackPositionTicks?: number;
   jellyfinId?: string;
+  videoStreamUrl?: string;
 }
 
 export interface Season {
@@ -49,6 +50,7 @@ export interface MediaItem {
   jellyfinId?: string;
   seerrId?: number;
   tmdbId?: number;
+  playableEpisodeId?: string;
   status: AvailabilityStatus;
   playbackPositionTicks?: number;
   totalDurationTicks?: number;

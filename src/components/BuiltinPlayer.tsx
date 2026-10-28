@@ -47,20 +47,69 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [showControls, setShowControls] = useState(true);
   const [playerMode, setPlayerMode] = useState<'builtin' | 'jellyfin_embed'>('builtin');
   const [buffered, setBuffered] = useState(0);
+  const [streamError, setStreamError] = useState(false);
+  const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
 
-  // Determine media stream URL
-  const targetId = episode?.jellyfinId || item.jellyfinId || item.id;
+  // Active episode / target ID
+  const [activeEpisode, setActiveEpisode] = useState<Episode | undefined>(episode);
+  const [activePlayableId, setActivePlayableId] = useState<string | undefined>(
+    episode?.jellyfinId ||
+    episode?.id ||
+    item.playableEpisodeId ||
+    (item.type !== 'Series' ? (item.jellyfinId || item.id) : undefined)
+  );
+
   const isJellyfinItem = Boolean(item.source === 'jellyfin' || item.jellyfinId);
 
-  let streamUrl = item.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-  if (isJellyfinItem && jellyfinServerUrl && jellyfinApiKey && targetId) {
+  // If item is a series and no playable episode is resolved yet, fetch series seasons/episodes
+  useEffect(() => {
+    if (item.type === 'Series' && !activePlayableId) {
+      if (item.seasons && item.seasons.length > 0) {
+        const firstEp = item.seasons.flatMap((s) => s.episodes || []).find((ep) => ep.videoStreamUrl || ep.jellyfinId);
+        if (firstEp) {
+          setActiveEpisode(firstEp);
+          setActivePlayableId(firstEp.jellyfinId || firstEp.id);
+          return;
+        }
+      }
+
+      setIsLoadingEpisode(true);
+      fetch(`/api/media/${item.id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.item?.playableEpisodeId) {
+            setActivePlayableId(data.item.playableEpisodeId);
+          }
+          if (data.item?.seasons) {
+            const firstEp = data.item.seasons.flatMap((s: any) => s.episodes || []).find((ep: any) => ep.videoStreamUrl || ep.jellyfinId);
+            if (firstEp) {
+              setActiveEpisode(firstEp);
+              setActivePlayableId(firstEp.jellyfinId || firstEp.id);
+            }
+          }
+        })
+        .catch(console.error)
+        .finally(() => setIsLoadingEpisode(false));
+    }
+  }, [item, activePlayableId]);
+
+  // Determine media stream URL (use .stream.mp4 for universal browser playback)
+  let streamUrl = activeEpisode?.videoStreamUrl || '';
+  if (!streamUrl && isJellyfinItem && jellyfinServerUrl && jellyfinApiKey && activePlayableId) {
     const cleanUrl = jellyfinServerUrl.replace(/\/+$/, '');
-    streamUrl = `${cleanUrl}/Videos/${targetId}/stream?static=true&api_key=${jellyfinApiKey}`;
+    streamUrl = `${cleanUrl}/Videos/${activePlayableId}/stream.mp4?static=true&api_key=${jellyfinApiKey}`;
+  }
+  if (!streamUrl && item.type !== 'Series' && item.videoStreamUrl) {
+    streamUrl = item.videoStreamUrl;
+  }
+  if (!streamUrl && !isJellyfinItem) {
+    streamUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
   }
 
   // Jellyfin native web client URL
-  const jellyfinWebUrl = (jellyfinServerUrl && targetId)
-    ? `${jellyfinServerUrl.replace(/\/+$/, '')}/web/index.html#!/details?id=${targetId}`
+  const jellyfinWebTargetId = activePlayableId || item.jellyfinId || item.id;
+  const jellyfinWebUrl = (jellyfinServerUrl && jellyfinWebTargetId)
+    ? `${jellyfinServerUrl.replace(/\/+$/, '')}/web/index.html#!/details?id=${jellyfinWebTargetId}`
     : '';
 
   // Auto-hide controls timer
@@ -183,7 +232,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  const currentTitle = episode ? `${item.title}: S${episode.seasonNumber}E${episode.episodeNumber} - ${episode.name}` : item.title;
+  const currentTitle = activeEpisode
+    ? `${item.title}: S${activeEpisode.seasonNumber}E${activeEpisode.episodeNumber} - ${activeEpisode.name}`
+    : item.title;
 
   return (
     <div
@@ -192,6 +243,50 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       onClick={resetControlsTimer}
       className="fixed inset-0 z-50 bg-black flex items-center justify-center select-none overflow-hidden cursor-auto"
     >
+      {/* Loading Episode Indicator */}
+      {isLoadingEpisode && (
+        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40 space-y-3">
+          <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm font-medium text-gray-400">Loading series episode...</span>
+        </div>
+      )}
+
+      {/* Stream Error Dialog */}
+      {streamError && (
+        <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-6 text-center z-40 space-y-4">
+          <div className="w-16 h-16 rounded-full bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
+            <MonitorPlay size={32} />
+          </div>
+          <h3 className="text-xl font-bold text-white">Browser Stream Transcoding Required</h3>
+          <p className="text-sm text-gray-400 max-w-md">
+            This video stream requires container remuxing or an unsupported audio codec. Switch to the embedded Jellyfin player for direct playback.
+          </p>
+          <div className="flex items-center space-x-3 pt-2">
+            <button
+              onClick={() => {
+                setStreamError(false);
+                setPlayerMode('jellyfin_embed');
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded transition-all shadow-lg"
+            >
+              Open in Jellyfin Player
+            </button>
+            <button
+              onClick={() => {
+                setStreamError(false);
+                if (videoRef.current) {
+                  videoRef.current.load();
+                  videoRef.current.play().catch(console.error);
+                }
+              }}
+              className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 font-semibold px-4 py-2.5 rounded transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mode Switcher View */}
       {playerMode === 'builtin' ? (
         /* HomeFlix HTML5 Stream Player */
@@ -201,6 +296,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             src={streamUrl}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
+            onError={() => {
+              setStreamError(true);
+            }}
             onEnded={() => {
               setIsPlaying(false);
               if (onNextEpisode) onNextEpisode();
