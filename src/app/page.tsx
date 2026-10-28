@@ -8,7 +8,6 @@ import { MediaModal } from '@/components/MediaModal';
 import { BuiltinPlayer } from '@/components/BuiltinPlayer';
 import { RequestDialog } from '@/components/RequestDialog';
 import { SearchOverlay } from '@/components/SearchOverlay';
-import { SettingsModal } from '@/components/SettingsModal';
 import { MediaItem, MediaRowSection, Episode } from '@/types';
 import { Loader2, Sparkles } from 'lucide-react';
 
@@ -27,7 +26,6 @@ export default function Home() {
   const [modalItem, setModalItem] = useState<MediaItem | null>(null);
   const [playingState, setPlayingState] = useState<{ item: MediaItem; episode?: Episode } | null>(null);
   const [requestItem, setRequestItem] = useState<MediaItem | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Server credentials for player
   const [serverConfig, setServerConfig] = useState<{ jellyfinUrl: string; hasJellyfinKey: boolean }>({
@@ -177,7 +175,6 @@ export default function Home() {
       <Navbar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        onOpenSettings={() => setIsSettingsOpen(true)}
         isDemoMode={isDemoMode}
         jellyfinConnected={jellyfinConnected}
         seerrConnected={seerrConnected}
@@ -212,14 +209,8 @@ export default function Home() {
               <Sparkles size={16} className="text-amber-400 shrink-0" />
               <div>
                 <span className="font-bold text-white">Running in Demo Mode: </span>
-                <span>Connect your Jellyfin &amp; Seerr servers in Settings.</span>
+                <span>Configure JELLYFIN_URL and JELLYFIN_API_KEY in your .env file to connect your media library.</span>
               </div>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded font-bold text-[11px] transition-colors"
-              >
-                Configure
-              </button>
             </div>
           )}
 
@@ -289,14 +280,6 @@ export default function Home() {
           item={requestItem}
           onClose={() => setRequestItem(null)}
           onSuccess={handleRequestSuccess}
-        />
-      )}
-
-      {/* Settings Modal */}
-      {isSettingsOpen && (
-        <SettingsModal
-          onClose={() => setIsSettingsOpen(false)}
-          onRefreshData={loadHomeData}
         />
       )}
     </main>

@@ -2,6 +2,16 @@ export type MediaType = 'Movie' | 'Series' | 'Episode';
 
 export type AvailabilityStatus = 'available' | 'partially_available' | 'requested' | 'processing' | 'not_requested';
 
+export interface SubtitleTrack {
+  id: string;
+  index: number;
+  title: string;
+  language: string;
+  isDefault?: boolean;
+  isForced?: boolean;
+  src: string;
+}
+
 export interface Episode {
   id: string;
   episodeNumber: number;

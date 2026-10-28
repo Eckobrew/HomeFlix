@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       // Simulate demo request
       return NextResponse.json({
         success: true,
-        message: 'Request simulated! (Configure Seerr in Settings to send requests to your real server)',
+        message: 'Request simulated! (Configure SEERR_URL and SEERR_API_KEY in your .env file)',
         isDemo: true,
       });
     }

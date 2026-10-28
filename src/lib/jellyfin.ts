@@ -1,4 +1,4 @@
-import { MediaItem, Season, Episode } from '@/types';
+import { MediaItem, Season, Episode, SubtitleTrack } from '@/types';
 import { getServerConfig } from './config';
 
 export interface JellyfinItem {
@@ -33,6 +33,19 @@ export interface JellyfinItem {
   SeasonId?: string;
   LocationType?: string;
   Container?: string;
+  MediaStreams?: {
+    Type?: string;
+    Index?: number;
+    Codec?: string;
+    Language?: string;
+    Title?: string;
+    DisplayTitle?: string;
+    IsDefault?: boolean;
+    IsForced?: boolean;
+  }[];
+  MediaSources?: {
+    Id?: string;
+  }[];
 }
 
 export class JellyfinClient {
@@ -115,9 +128,40 @@ export class JellyfinClient {
     return `${this.url}/Videos/${itemId}/stream.mp4?static=true&api_key=${this.apiKey}`;
   }
 
-  getJellyfinWebPlayerUrl(itemId: string): string {
+  getSubtitleStreamUrl(itemId: string, mediaSourceId: string, index: number): string {
     if (!this.url || !itemId) return '';
-    return `${this.url}/web/index.html#!/details?id=${itemId}`;
+    const sourceId = mediaSourceId || itemId;
+    return `${this.url}/Videos/${itemId}/${sourceId}/Subtitles/${index}/0/Stream.vtt?api_key=${this.apiKey}`;
+  }
+
+  async getSubtitles(itemId: string): Promise<SubtitleTrack[]> {
+    if (!this.isConfigured() || !itemId) return [];
+    try {
+      const uid = await this.getFirstUserId();
+      const res = await fetch(
+        `${this.url}/Users/${uid}/Items/${itemId}?Fields=MediaStreams,MediaSources`,
+        { headers: this.getHeaders() }
+      );
+      if (!res.ok) return [];
+      const data: JellyfinItem = await res.json();
+      const mediaSourceId = data.MediaSources?.[0]?.Id || itemId;
+      const subStreams = (data.MediaStreams || []).filter(
+        (s) => s.Type === 'Subtitle' && typeof s.Index === 'number'
+      );
+
+      return subStreams.map((s) => ({
+        id: String(s.Index),
+        index: s.Index!,
+        title: s.DisplayTitle || s.Title || s.Language || `Subtitle ${s.Index}`,
+        language: s.Language || 'und',
+        isDefault: Boolean(s.IsDefault),
+        isForced: Boolean(s.IsForced),
+        src: `/api/subtitles?itemId=${itemId}&mediaSourceId=${mediaSourceId}&index=${s.Index}`,
+      }));
+    } catch (e) {
+      console.error(`Error fetching subtitles for item ${itemId}:`, e);
+      return [];
+    }
   }
 
   private mapJellyfinItem(item: JellyfinItem): MediaItem {

@@ -1,12 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, Settings, X } from 'lucide-react';
+import { Search, X } from 'lucide-react';
 
 interface NavbarProps {
   onSearchChange: (query: string) => void;
   searchQuery: string;
-  onOpenSettings: () => void;
   isDemoMode?: boolean;
   jellyfinConnected: boolean;
   seerrConnected: boolean;
@@ -17,7 +16,6 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   onSearchChange,
   searchQuery,
-  onOpenSettings,
   jellyfinConnected,
   seerrConnected,
   activeTab,
@@ -144,10 +142,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Server status pill */}
-        <button
-          onClick={onOpenSettings}
+        <div
           title="Server Connection Status"
-          className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 hover:bg-neutral-800 border border-neutral-700/60 px-2.5 py-1 rounded-full text-xs transition-colors"
+          className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 border border-neutral-700/60 px-2.5 py-1 rounded-full text-xs select-none"
         >
           <div className="flex items-center space-x-1.5">
             <span
@@ -170,21 +167,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               {seerrConnected ? 'Seerr' : 'Seerr Off'}
             </span>
           </div>
-        </button>
-
-        {/* Settings button */}
-        <button
-          onClick={onOpenSettings}
-          title="Configure Jellyfin & Seerr"
-          className="p-1.5 hover:text-white text-gray-400 transition-colors rounded-full hover:bg-neutral-800"
-        >
-          <Settings size={20} />
-        </button>
+        </div>
 
         {/* User profile avatar */}
         <div
-          onClick={onOpenSettings}
-          className="w-8 h-8 rounded bg-red-700 cursor-pointer overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow"
+          className="w-8 h-8 rounded bg-red-700 overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow select-none"
         >
           HF
         </div>
