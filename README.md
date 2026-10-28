@@ -77,18 +77,19 @@ flowchart LR
 
 ## 🚀 Proxmox LXC Deployment
 
-### Option 1: Proxmox VE 1-Line Helper Script (Recommended)
+### Option 1: Proxmox VE Helper Script (community-scripts.org format)
 Run this command directly in your **Proxmox VE Host Shell** (`pve` node):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Eckobrew/HomeFlix/main/scripts/install-proxmox-lxc.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Eckobrew/HomeFlix/main/ct/homeflix.sh)"
 ```
 
-This wizard will:
-1. Automatically download the Debian 12 LXC template.
-2. Create an unprivileged LXC container with Docker and Nesting enabled.
-3. Start the container, clone HomeFlix, and launch the Docker container on port `3000`.
-4. Output your access URL: `http://<LXC_IP>:3000`.
+Built following the official **[community-scripts.org](https://community-scripts.org)** architecture:
+1. Presents the standard Default Settings vs Advanced Settings dialog.
+2. Creates an optimized Debian 12 LXC container with 2 vCPUs, 2GB RAM, and 8GB storage.
+3. Configures Node.js 20, builds HomeFlix, and enables the `homeflix.service` systemd daemon.
+4. Provides native container management via the `update` command inside the container.
+5. Outputs your access URL: `http://<LXC_IP>:3000`.
 
 ---
 
