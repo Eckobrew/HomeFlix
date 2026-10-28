@@ -1,22 +1,32 @@
 # 🍿 HomeFlix
 
-> **A modern, full-featured Netflix clone built specifically for your self-hosted media stack.**
-> Seamlessly integrates with **Jellyfin** for local media streaming and **Seerr** (Jellyseerr / Overseerr) for searching and 1-click automated requests. Easily deployed in a **Proxmox VE LXC** or Docker container.
+> **A modern, responsive web companion and streaming frontend built specifically for your self-hosted media stack.**
+> Seamlessly interfaces with **Jellyfin** for local media streaming and **Seerr** (Jellyseerr / Overseerr) for catalog searching and 1-click automated requests. Easily deployed via **Proxmox VE LXC** or Docker.
+
+---
+
+## ⚖️ Disclaimer
+
+**HomeFlix** is an independent, open-source, non-commercial companion client designed solely to interface with personal, self-hosted media server stacks (such as Jellyfin and Jellyseerr/Overseerr).
+
+This project is **not** affiliated with, endorsed by, sponsored by, or associated in any way with Netflix, Inc. or any commercial streaming service provider. All product names, logos, and brands are property of their respective trademark owners. Use of these names, logos, and brands does not imply endorsement or affiliation.
 
 ---
 
 ## ✨ Features
 
-- **🎬 Authentic Netflix Experience**:
-  - Signature Netflix dark aesthetic (`#141414`), red accents, and smooth typography.
+- **🎬 Modern Cinematic Streaming Experience**:
+  - Dark cinematic aesthetic (`#141414`), sleek red accents, and smooth typography.
   - Dynamic **Hero Billboard** featuring featured backdrop, match rating, tags (4K, 5.1, TV-MA), synopsis, "Play" and "More Info" buttons.
-  - Horizontal scrolling carousels with smooth arrow navigation and card hover zoom previews.
-  - **Top 10 Today** row with massive stylized Netflix numbers (1–10).
+  - Multi-item dynamic billboard that auto-rotates through featured items with manual carousel controls.
+  - Horizontal scrolling carousels with smooth navigation and card hover zoom previews.
+  - Hover previews seek automatically to random points (15%–75% runtime) with teaser loop and audio toggle.
+  - **Top 10 Today** row with massive stylized rank numerals (1–10).
   - **Continue Watching** row with user resume progress bars and direct resume click.
-  - Category and genre rows (Recently Added Movies, Recently Added Series, Trending).
+  - Category and genre rows (Recently Added Movies, Recently Added Series, Trending) strictly partitioned by media type.
 
-- **📺 Built-in Netflix-Themed Web Player & Native Jellyfin Embed**:
-  - Fullscreen video playback with custom red scrubber timeline, buffer bar, 10-second skip forward/back, and volume control.
+- **📺 Dual-Mode Web Video Player & Native Jellyfin Embed**:
+  - Fullscreen video playback with custom scrubber timeline, buffer bar, 10-second skip forward/back, and volume control.
   - Streams directly from Jellyfin (`/Videos/{itemId}/stream`) or embeds Jellyfin's native web player in 1-click.
   - Episode drawer for TV shows to jump between episodes or auto-play next episode.
   - Reports playback progress to Jellyfin so watch history stays synchronized across all client devices.
@@ -31,12 +41,12 @@
 - **📦 Proxmox VE LXC & Docker Ready**:
   - Standalone multi-stage lightweight Docker image (`<120MB`).
   - Automated **1-line Proxmox VE LXC installer** script.
-  - Clean `docker-compose.yml` with port 3000 and environment variables.
+  - Clean `docker-compose.yml` with port 3000 and environment variable configuration.
 
 - **⚙️ Dynamic In-App Settings & Demo Mode**:
   - Connect and test your Jellyfin and Seerr servers directly in the web UI.
   - Built-in "Test Connection" status checks for both servers.
-  - Includes a rich, interactive demo catalog out-of-the-box so you can explore the Netflix UI immediately before plugging in your servers.
+  - Includes a rich, interactive demo catalog out-of-the-box so you can explore the UI immediately before plugging in your servers.
 
 ---
 
@@ -138,7 +148,7 @@ When you visit HomeFlix, it queries your Jellyfin server for:
 - **Top Rated on HomeFlix** (for the Top 10 carousel)
 
 ### Searching & Downloading
-When you type in the Netflix search bar in the top right:
+When you type in the search bar in the top right:
 1. HomeFlix searches Seerr's unified database (covering TMDB movies and TV series).
 2. It cross-checks each result with your local Jellyfin library.
 3. If an item is not yet downloaded, an interactive **Request** button appears.
@@ -146,7 +156,7 @@ When you type in the Netflix search bar in the top right:
 
 ### Built-in Video Playback
 When you click **Play**:
-- The custom HomeFlix Netflix video player launches fullscreen.
+- The custom HomeFlix video player launches fullscreen.
 - Plays direct streams or adaptive HLS from Jellyfin.
 - You can switch seamlessly between the **HomeFlix Built-in Player** and the **Jellyfin Embedded Web Player** with the mode switcher in the top right corner.
 
