@@ -1,0 +1,26 @@
+services:
+  homeflix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: homeflix:latest
+    container_name: homeflix
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Jellyfin Integration
+      - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin.local:8096}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
+      - JELLYFIN_USER_ID=${JELLYFIN_USER_ID:-}
+      # Seerr (Jellyseerr / Overseerr) Integration
+      - SEERR_URL=${SEERR_URL:-http://jellyseerr.local:5055}
+      - SEERR_API_KEY=${SEERR_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/config"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
