@@ -152,10 +152,10 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                 <span className="border border-neutral-600 px-1.5 py-0.5 text-xs rounded text-gray-300">
                   {currentItem.rating || 'TV-MA'}
                 </span>
-                {currentItem.seasonsCount && (
+                {typeof currentItem.seasonsCount === 'number' && currentItem.seasonsCount > 0 && (
                   <span>{currentItem.seasonsCount} Season{currentItem.seasonsCount > 1 ? 's' : ''}</span>
                 )}
-                {currentItem.durationMinutes && (
+                {typeof currentItem.durationMinutes === 'number' && currentItem.durationMinutes > 0 && (
                   <span>{Math.floor(currentItem.durationMinutes / 60)}h {currentItem.durationMinutes % 60}m</span>
                 )}
                 <span className="border border-neutral-700 text-[10px] px-1 py-0.5 rounded font-mono text-neutral-400">

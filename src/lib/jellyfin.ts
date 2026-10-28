@@ -195,7 +195,7 @@ export class JellyfinClient {
       communityRating: item.CommunityRating,
       durationMinutes,
       genres: item.Genres || [],
-      seasonsCount: item.ChildCount,
+      seasonsCount: isSeries && typeof item.ChildCount === 'number' && item.ChildCount > 0 ? item.ChildCount : undefined,
       source: 'jellyfin',
       jellyfinId: item.Id,
       status: 'available',

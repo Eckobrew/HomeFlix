@@ -196,8 +196,12 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           <span className="border border-gray-400/60 px-1 py-0.2 text-xs rounded text-gray-300 font-normal">
             {currentItem.rating || 'TV-MA'}
           </span>
-          {currentItem.seasonsCount && <span>{currentItem.seasonsCount} Season{currentItem.seasonsCount > 1 ? 's' : ''}</span>}
-          {currentItem.durationMinutes && <span>{Math.floor(currentItem.durationMinutes / 60)}h {currentItem.durationMinutes % 60}m</span>}
+          {typeof currentItem.seasonsCount === 'number' && currentItem.seasonsCount > 0 && (
+            <span>{currentItem.seasonsCount} Season{currentItem.seasonsCount > 1 ? 's' : ''}</span>
+          )}
+          {typeof currentItem.durationMinutes === 'number' && currentItem.durationMinutes > 0 && (
+            <span>{Math.floor(currentItem.durationMinutes / 60)}h {currentItem.durationMinutes % 60}m</span>
+          )}
           <span className="border border-gray-400/40 text-[10px] px-1 py-0.5 rounded font-mono text-gray-400">
             4K UHD
           </span>
