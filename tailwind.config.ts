@@ -9,7 +9,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        netflix: {
+        brand: {
           red: "#E50914",
           darkRed: "#B81D24",
           black: "#141414",

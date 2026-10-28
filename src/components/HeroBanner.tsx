@@ -34,7 +34,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
   const currentItem = items[currentIndex] || items[0];
 
-  // Auto-cycle through items every 9 seconds (like Netflix)
+  // Auto-cycle through items every 9 seconds
   useEffect(() => {
     if (!items || items.length <= 1 || isHovering) return;
 
@@ -132,7 +132,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         />
       )}
 
-      {/* Netflix Gradients: bottom fade, left side fade, top subtle shadow */}
+      {/* Cinematic Gradients: bottom fade, left side fade, top subtle shadow */}
       <div className="absolute inset-0 bg-gradient-to-t from-[#141414] via-[#141414]/40 to-black/60 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-r from-[#141414] via-[#141414]/75 to-transparent w-full md:w-3/4 pointer-events-none" />
 
@@ -230,7 +230,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         </div>
       </div>
 
-      {/* Right side floating controls & Netflix Carousel Indicators */}
+      {/* Right side floating controls & Carousel Indicators */}
       <div className="absolute right-4 md:right-12 bottom-24 md:bottom-32 z-10 flex flex-col items-end space-y-3">
         {/* Sound toggle & age rating */}
         <div className="flex items-center space-x-3">
@@ -248,7 +248,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           </div>
         </div>
 
-        {/* Netflix-style 5 Carousel Indicators */}
+        {/* 5 Carousel Indicators */}
         {items.length > 1 && (
           <div className="flex items-center space-x-1.5 pt-1">
             {items.map((_, idx) => (

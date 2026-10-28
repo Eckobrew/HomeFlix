@@ -14,8 +14,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "HomeFlix - Watch TV Shows Online, Watch Movies Online",
-  description: "A Netflix clone integrating Jellyfin and Seerr (Jellyseerr/Overseerr) for Proxmox LXC",
+  title: "HomeFlix - Modern Self-Hosted Streaming Client",
+  description: "A modern self-hosted streaming web companion integrating Jellyfin and Seerr (Jellyseerr/Overseerr) for Proxmox LXC",
   icons: {
     icon: '/favicon.ico',
   },

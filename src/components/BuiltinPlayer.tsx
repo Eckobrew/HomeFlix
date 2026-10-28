@@ -247,7 +247,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         </div>
       )}
 
-      {/* Netflix Player Overlay Controls */}
+      {/* Web Player Overlay Controls */}
       <div
         className={`absolute inset-0 pointer-events-none transition-opacity duration-300 flex flex-col justify-between ${
           showControls ? 'opacity-100' : 'opacity-0'
@@ -302,7 +302,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </div>
         </div>
 
-        {/* Bottom Controls Bar (Netflix Player Style) */}
+        {/* Bottom Controls Bar */}
         {playerMode === 'builtin' && (
           <div
             className="p-6 md:p-8 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto space-y-3"

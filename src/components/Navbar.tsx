@@ -181,7 +181,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <Settings size={20} />
         </button>
 
-        {/* Netflix user avatar */}
+        {/* User profile avatar */}
         <div
           onClick={onOpenSettings}
           className="w-8 h-8 rounded bg-red-700 cursor-pointer overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow"

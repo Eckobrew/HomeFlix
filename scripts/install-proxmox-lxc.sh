@@ -28,7 +28,7 @@ cat << "EOF"
  |_|  |_|\___/|_| |_| |_|\___|   |_|    |_|_/_/\_\
 EOF
 echo -e "${NC}"
-echo -e "${CYAN}=== HomeFlix - Netflix Clone for Jellyfin & Seerr ===${NC}\n"
+echo -e "${CYAN}=== HomeFlix - Modern Streaming Client for Jellyfin & Seerr ===${NC}\n"
 
 # Function to detect if running on Proxmox VE host
 is_pve() {

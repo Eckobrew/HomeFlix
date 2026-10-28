@@ -32,7 +32,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const isAvailable = item.status === 'available' || item.source === 'jellyfin' || item.source === 'demo';
   const isRequested = item.status === 'requested' || item.status === 'processing';
 
-  // Authentic Netflix hover intent delay & preview trigger
+  // Smooth hover intent delay & preview trigger
   const handleMouseEnter = () => {
     hoverTimeoutRef.current = setTimeout(() => {
       setIsHovered(true);
@@ -98,7 +98,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       {/* Top 10 Layout: Large stylized rank number on left + poster */}
       {rankNumber ? (
         <div className="flex items-center">
-          {/* Big Stylized Netflix Number */}
+          {/* Big Stylized Rank Number */}
           <div className="text-7xl md:text-8xl font-black text-stroke-white text-transparent select-none tracking-tighter opacity-80 -mr-4 md:-mr-6 z-10 font-sans scale-y-110 drop-shadow-[0_2px_10px_rgba(0,0,0,0.8)]">
             <span className="text-stroke-gray">{rankNumber}</span>
           </div>
@@ -169,7 +169,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         </div>
       )}
 
-      {/* Netflix Floating Hover Card with Random Section Video Preview */}
+      {/* Floating Hover Card with Random Section Video Preview */}
       {isHovered && !rankNumber && (
         <div
           className="hidden md:block absolute -top-24 md:-top-28 -left-6 md:-left-8 z-50 w-72 md:w-80 bg-[#181818] rounded-md shadow-[0_22px_50px_rgba(0,0,0,0.98)] overflow-hidden border border-neutral-700/80 animate-fade-in pointer-events-auto"

@@ -28,7 +28,7 @@ body {
   scrollbar-width: none;  /* Firefox */
 }
 
-/* Custom Netflix style scrollbar for modal content */
+/* Custom dark theme scrollbar for modal content */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -63,11 +63,11 @@ body {
 }
 
 /* Card hover glow and smooth transitions */
-.netflix-card {
+.media-card {
   transition: transform 300ms cubic-bezier(0.2, 0, 0.2, 1), box-shadow 300ms ease;
   will-change: transform;
 }
 
-.netflix-card:hover {
+.media-card:hover {
   box-shadow: 0 14px 28px rgba(0,0,0,0.7), 0 10px 10px rgba(0,0,0,0.6);
 }

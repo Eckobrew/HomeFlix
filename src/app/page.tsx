@@ -204,7 +204,7 @@ export default function Home() {
           </p>
         </div>
       ) : (
-        /* Netflix Home Content */
+        /* Main Home Content */
         <div>
           {/* Demo Mode Notice Banner (Discreet) */}
           {isDemoMode && (
@@ -263,7 +263,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Netflix Detail Modal */}
+      {/* Media Detail Modal */}
       {modalItem && (
         <MediaModal
           item={modalItem}

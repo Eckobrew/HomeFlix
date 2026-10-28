@@ -86,7 +86,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
             alt={currentItem.title}
             className="w-full h-full object-cover"
           />
-          {/* Netflix Gradients */}
+          {/* Cinematic Gradients */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/40 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent" />
 
