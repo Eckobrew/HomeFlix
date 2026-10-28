@@ -49,6 +49,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [buffered, setBuffered] = useState(0);
   const [streamError, setStreamError] = useState(false);
   const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
+  const [streamUrl, setStreamUrl] = useState<string>('');
+  const [isTranscoding, setIsTranscoding] = useState(false);
+  const [isLoadingStream, setIsLoadingStream] = useState(true);
+  const [hasTriedFallbackTranscode, setHasTriedFallbackTranscode] = useState(false);
 
   // Subtitles state
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
@@ -67,14 +71,17 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const isJellyfinItem = Boolean(item.source === 'jellyfin' || item.jellyfinId);
 
-  // If item is a series and no playable episode is resolved yet, fetch series seasons/episodes
+  // If item is a series and no activeEpisode is resolved yet, fetch series seasons/episodes
   useEffect(() => {
-    if (item.type === 'Series' && !activePlayableId) {
+    if (item.type === 'Series' && !activeEpisode) {
       if (item.seasons && item.seasons.length > 0) {
-        const firstEp = item.seasons.flatMap((s) => s.episodes || []).find((ep) => ep.videoStreamUrl || ep.jellyfinId);
-        if (firstEp) {
-          setActiveEpisode(firstEp);
-          setActivePlayableId(firstEp.jellyfinId || firstEp.id);
+        const allEps = item.seasons.flatMap((s) => s.episodes || []);
+        const found = activePlayableId
+          ? allEps.find((ep) => ep.jellyfinId === activePlayableId || ep.id === activePlayableId)
+          : allEps.find((ep) => ep.videoStreamUrl || ep.jellyfinId);
+        if (found) {
+          setActiveEpisode(found);
+          if (!activePlayableId) setActivePlayableId(found.jellyfinId || found.id);
           return;
         }
       }
@@ -83,21 +90,26 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       fetch(`/api/media/${item.id}`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.item?.playableEpisodeId) {
-            setActivePlayableId(data.item.playableEpisodeId);
+          const media = data.item;
+          if (!media) return;
+          const targetPlayableId = activePlayableId || media.playableEpisodeId;
+          if (targetPlayableId && !activePlayableId) {
+            setActivePlayableId(targetPlayableId);
           }
-          if (data.item?.seasons) {
-            const firstEp = data.item.seasons.flatMap((s: any) => s.episodes || []).find((ep: any) => ep.videoStreamUrl || ep.jellyfinId);
-            if (firstEp) {
-              setActiveEpisode(firstEp);
-              setActivePlayableId(firstEp.jellyfinId || firstEp.id);
+          if (media.seasons) {
+            const allEps = media.seasons.flatMap((s: any) => s.episodes || []);
+            const found = targetPlayableId
+              ? allEps.find((ep: any) => ep.jellyfinId === targetPlayableId || ep.id === targetPlayableId)
+              : allEps.find((ep: any) => ep.videoStreamUrl || ep.jellyfinId);
+            if (found) {
+              setActiveEpisode(found);
             }
           }
         })
         .catch(console.error)
         .finally(() => setIsLoadingEpisode(false));
     }
-  }, [item, activePlayableId]);
+  }, [item, activeEpisode, activePlayableId]);
 
   // Fetch available subtitles for active playable ID
   useEffect(() => {
@@ -134,18 +146,126 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
   }, [selectedSubtitleId, subtitles]);
 
-  // Determine media stream URL
-  let streamUrl = activeEpisode?.videoStreamUrl || '';
-  if (!streamUrl && isJellyfinItem && jellyfinServerUrl && jellyfinApiKey && activePlayableId) {
-    const cleanUrl = jellyfinServerUrl.replace(/\/+$/, '');
-    streamUrl = `${cleanUrl}/Videos/${activePlayableId}/stream.mp4?static=true&api_key=${jellyfinApiKey}`;
-  }
-  if (!streamUrl && item.type !== 'Series' && item.videoStreamUrl) {
-    streamUrl = item.videoStreamUrl;
-  }
-  if (!streamUrl && !isJellyfinItem) {
-    streamUrl = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-  }
+  // Negotiate dynamic playback stream (DirectPlay / Transcoding)
+  useEffect(() => {
+    if (!activePlayableId && item.type === 'Series') {
+      return;
+    }
+
+    if (!isJellyfinItem) {
+      setStreamUrl(activeEpisode?.videoStreamUrl || item.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+      setIsLoadingStream(false);
+      return;
+    }
+
+    const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
+    if (!targetId) return;
+
+    setIsLoadingStream(true);
+    setStreamError(false);
+    setHasTriedFallbackTranscode(false);
+
+    // Detect browser HEVC capability
+    const canPlayHevc = typeof document !== 'undefined' && (
+      document.createElement('video').canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') === 'probably' ||
+      document.createElement('video').canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"') === 'probably'
+    );
+
+    let isMounted = true;
+    fetch(`/api/playback?itemId=${targetId}&canPlayHevc=${canPlayHevc}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!isMounted) return;
+        if (data.streamUrl) {
+          setStreamUrl(data.streamUrl);
+          setIsTranscoding(Boolean(data.isTranscoding));
+        } else {
+          const cleanUrl = jellyfinServerUrl?.replace(/\/+$/, '') || '';
+          setStreamUrl(`${cleanUrl}/Videos/${targetId}/stream.mp4?api_key=${jellyfinApiKey}`);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to negotiate playback stream:', err);
+        if (!isMounted) return;
+        const cleanUrl = jellyfinServerUrl?.replace(/\/+$/, '') || '';
+        setStreamUrl(`${cleanUrl}/Videos/${targetId}/stream.mp4?api_key=${jellyfinApiKey}`);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingStream(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activePlayableId, item, isJellyfinItem, jellyfinServerUrl, jellyfinApiKey, activeEpisode]);
+
+  const handlePlaybackError = useCallback(() => {
+    const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
+
+    if (isJellyfinItem && targetId && !hasTriedFallbackTranscode) {
+      console.warn('Playback error encountered on direct stream. Attempting automatic Jellyfin transcoding fallback...');
+      setHasTriedFallbackTranscode(true);
+      setIsLoadingStream(true);
+
+      fetch(`/api/playback?itemId=${targetId}&forceTranscode=true`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.streamUrl) {
+            setStreamUrl(data.streamUrl);
+            setIsTranscoding(true);
+            setStreamError(false);
+            if (videoRef.current) {
+              videoRef.current.load();
+              videoRef.current.play().catch(console.error);
+            }
+          } else {
+            setStreamError(true);
+            setIsPlaying(false);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed fallback transcoding:', err);
+          setStreamError(true);
+          setIsPlaying(false);
+        })
+        .finally(() => {
+          setIsLoadingStream(false);
+        });
+      return;
+    }
+
+    setStreamError(true);
+    setIsPlaying(false);
+  }, [activePlayableId, item, isJellyfinItem, hasTriedFallbackTranscode]);
+
+  const handleRetryPlayback = () => {
+    const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
+    setStreamError(false);
+    setIsLoadingStream(true);
+
+    if (isJellyfinItem && targetId) {
+      fetch(`/api/playback?itemId=${targetId}&forceTranscode=true`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.streamUrl) {
+            setStreamUrl(data.streamUrl);
+            setIsTranscoding(true);
+            if (videoRef.current) {
+              videoRef.current.load();
+              videoRef.current.play().catch(console.error);
+            }
+          }
+        })
+        .catch(console.error)
+        .finally(() => setIsLoadingStream(false));
+    } else {
+      if (videoRef.current) {
+        videoRef.current.load();
+        videoRef.current.play().catch(console.error);
+      }
+      setIsLoadingStream(false);
+    }
+  };
 
   // Auto-hide controls timer
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -294,11 +414,17 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       onClick={resetControlsTimer}
       className="fixed inset-0 z-50 bg-black flex items-center justify-center select-none overflow-hidden cursor-auto"
     >
-      {/* Loading Episode Indicator */}
-      {isLoadingEpisode && (
+      {/* Loading Indicator */}
+      {(isLoadingEpisode || isLoadingStream) && (
         <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40 space-y-3">
           <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-medium text-gray-400">Loading series episode...</span>
+          <span className="text-sm font-medium text-gray-400">
+            {isLoadingEpisode
+              ? 'Loading series episode...'
+              : isTranscoding
+              ? 'Preparing hardware-accelerated stream...'
+              : 'Loading media stream...'}
+          </span>
         </div>
       )}
 
@@ -314,13 +440,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </p>
           <div className="flex items-center space-x-3 pt-2">
             <button
-              onClick={() => {
-                setStreamError(false);
-                if (videoRef.current) {
-                  videoRef.current.load();
-                  videoRef.current.play().catch(console.error);
-                }
-              }}
+              onClick={handleRetryPlayback}
               className="bg-red-600 hover:bg-red-700 text-white font-bold px-5 py-2.5 rounded transition-all shadow-lg"
             >
               Retry Playback
@@ -343,10 +463,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           crossOrigin="anonymous"
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
-          onError={() => {
-            setStreamError(true);
-            setIsPlaying(false);
-          }}
+          onError={handlePlaybackError}
           className="w-full h-full object-contain cursor-pointer"
           playsInline
         >

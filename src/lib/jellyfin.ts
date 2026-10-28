@@ -125,7 +125,126 @@ export class JellyfinClient {
 
   getStreamUrl(itemId: string): string {
     if (!this.url || !itemId) return '';
-    return `${this.url}/Videos/${itemId}/stream.mp4?static=true&api_key=${this.apiKey}`;
+    return `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`;
+  }
+
+  async getPlaybackStream(
+    itemId: string,
+    options?: {
+      canPlayHevc?: boolean;
+      forceTranscode?: boolean;
+      startTimeTicks?: number;
+    }
+  ): Promise<{
+    streamUrl: string;
+    isTranscoding: boolean;
+    transcodeReasons?: string;
+    playSessionId?: string;
+    mediaSourceId?: string;
+  }> {
+    if (!this.isConfigured() || !itemId) {
+      return {
+        streamUrl: '',
+        isTranscoding: false,
+      };
+    }
+
+    try {
+      const uid = await this.getFirstUserId();
+      const startTimeTicksParam =
+        typeof options?.startTimeTicks === 'number' && options.startTimeTicks > 0
+          ? `&StartTimeTicks=${options.startTimeTicks}`
+          : '';
+
+      const canDirectHevc = Boolean(options?.canPlayHevc && !options?.forceTranscode);
+      const directVideoCodecs = options?.forceTranscode
+        ? ''
+        : canDirectHevc
+        ? 'h264,hevc'
+        : 'h264';
+
+      const directPlayProfiles = directVideoCodecs
+        ? [
+            {
+              Container: 'mp4,m4v,mov',
+              Type: 'Video',
+              VideoCodec: directVideoCodecs,
+              AudioCodec: 'aac,mp3',
+            },
+          ]
+        : [];
+
+      const profilePayload = {
+        StartTimeTicks: options?.startTimeTicks,
+        DeviceProfile: {
+          MaxStreamingBitrate: 120000000,
+          DirectPlayProfiles: directPlayProfiles,
+          TranscodingProfiles: [
+            {
+              Container: 'mp4',
+              Type: 'Video',
+              VideoCodec: 'h264',
+              AudioCodec: 'aac',
+              Protocol: 'http',
+              Context: 'Streaming',
+            },
+          ],
+        },
+      };
+
+      const res = await fetch(
+        `${this.url}/Items/${itemId}/PlaybackInfo?UserId=${uid}${startTimeTicksParam}`,
+        {
+          method: 'POST',
+          headers: {
+            ...this.getHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(profilePayload),
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        const mediaSource = data.MediaSources?.[0];
+        if (mediaSource) {
+          if (mediaSource.TranscodingUrl) {
+            return {
+              streamUrl: `${this.url}${mediaSource.TranscodingUrl}`,
+              isTranscoding: true,
+              transcodeReasons: mediaSource.TranscodeReasons?.join(', '),
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+            };
+          }
+
+          if (mediaSource.DirectStreamUrl) {
+            return {
+              streamUrl: `${this.url}${mediaSource.DirectStreamUrl}`,
+              isTranscoding: false,
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+            };
+          }
+
+          if (mediaSource.SupportsDirectPlay) {
+            return {
+              streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
+              isTranscoding: false,
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`Error negotiating playback for item ${itemId}:`, e);
+    }
+
+    return {
+      streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
+      isTranscoding: false,
+    };
   }
 
   getSubtitleStreamUrl(itemId: string, mediaSourceId: string, index: number): string {
