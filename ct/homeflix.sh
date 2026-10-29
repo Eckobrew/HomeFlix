@@ -4,7 +4,7 @@ source "$_cs_boot" 2>/dev/null || source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_
 # Copyright (c) 2021-2026 community-scripts ORG
 # Author: Eckobrew
 # License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
-# Source: https://github.com/Eckobrew/HomeFlix
+# Source: https://github.com/Eckobrew/HomeStream
 
 APP="HomeFlix"
 var_tags="${var_tags:-media;streaming}"
@@ -16,8 +16,8 @@ var_version="${var_version:-12}"
 var_arm64="${var_arm64:-yes}"
 var_unprivileged="${var_unprivileged:-1}"
 
-# Point COMMUNITY_SCRIPTS_URL to HomeFlix repository so build.func resolves install/homeflix-install.sh
-export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/Eckobrew/HomeFlix/main}"
+# Point COMMUNITY_SCRIPTS_URL to HomeStream repository so build.func resolves install/homeflix-install.sh
+export COMMUNITY_SCRIPTS_URL="${COMMUNITY_SCRIPTS_URL:-https://raw.githubusercontent.com/Eckobrew/HomeStream/main}"
 
 header_info "$APP"
 variables

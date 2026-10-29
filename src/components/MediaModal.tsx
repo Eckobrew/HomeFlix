@@ -245,12 +245,28 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                 {typeof currentItem.durationMinutes === 'number' && currentItem.durationMinutes > 0 ? (
                   <span>{Math.floor(currentItem.durationMinutes / 60)}h {currentItem.durationMinutes % 60}m</span>
                 ) : null}
-                <span className="border border-neutral-700 text-[10px] px-1 py-0.5 rounded font-mono text-neutral-400">
-                  Ultra HD 4K
-                </span>
-                <span className="border border-neutral-700 text-[10px] px-1 py-0.5 rounded font-mono text-neutral-400">
-                  5.1 Audio
-                </span>
+                {/* Dynamic Resolution & HDR Badges */}
+                {currentItem.resolution && (
+                  <span className="border border-neutral-700 text-[10px] px-1.5 py-0.5 rounded font-mono text-neutral-300">
+                    {currentItem.resolution}
+                  </span>
+                )}
+                {currentItem.hasHdr && (
+                  <span className="border border-amber-500/70 text-[10px] px-1.5 py-0.5 rounded font-mono text-amber-400 font-bold bg-amber-950/30">
+                    HDR
+                  </span>
+                )}
+                {/* Dynamic Audio Quality Badge */}
+                {currentItem.audioQuality && (
+                  <span className="border border-neutral-700 text-[10px] px-1.5 py-0.5 rounded font-mono text-neutral-300">
+                    {currentItem.audioQuality}
+                  </span>
+                )}
+                {currentItem.source === 'seerr' && !currentItem.resolution && (
+                  <span className="border border-neutral-800 text-[10px] px-1.5 py-0.5 rounded font-mono text-neutral-400">
+                    HD Available
+                  </span>
+                )}
 
                 {/* Watched Status Badges */}
                 {currentItem.played ? (

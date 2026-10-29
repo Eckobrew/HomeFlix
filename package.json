@@ -1,10 +1,10 @@
 {
-  "name": "homeflix",
+  "name": "homestream",
   "version": "0.1.0",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Eckobrew/HomeFlix.git"
+    "url": "https://github.com/Eckobrew/HomeStream.git"
   },
   "scripts": {
     "dev": "next dev",

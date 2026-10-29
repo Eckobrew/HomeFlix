@@ -317,16 +317,57 @@ export class SeerrClient {
     }
   }
 
+  async getQualityProfiles(mediaType: 'movie' | 'tv' = 'movie'): Promise<{ id: number; name: string; is4k?: boolean }[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const service = mediaType === 'tv' ? 'sonarr' : 'radarr';
+      const srvRes = await fetch(`${this.url}/api/v1/service/${service}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 600 },
+      });
+      if (!srvRes.ok) return [];
+      const servers = await srvRes.json();
+      if (!Array.isArray(servers) || servers.length === 0) return [];
+      const defaultServer = servers.find((s) => s.isDefault) || servers[0];
+
+      const profRes = await fetch(`${this.url}/api/v1/service/${service}/${defaultServer.id}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 600 },
+      });
+      if (!profRes.ok) return [];
+      const serverDetails = await profRes.json();
+      const profiles: { id: number; name: string }[] = serverDetails.profiles || [];
+
+      return profiles.map((p) => ({
+        id: p.id,
+        name: p.name,
+        is4k: p.name.toLowerCase().includes('4k') || p.name.toLowerCase().includes('ultra'),
+      }));
+    } catch (e) {
+      console.error(`Error fetching quality profiles for ${mediaType}:`, e);
+      return [];
+    }
+  }
+
   async requestMedia(payload: RequestMediaPayload): Promise<{ success: boolean; message?: string; error?: string }> {
     if (!this.isConfigured()) {
       return { success: false, error: 'Seerr is not configured' };
     }
 
     try {
+      const is4k = Boolean(payload.is4k);
       const body: Record<string, unknown> = {
         mediaType: payload.mediaType,
         mediaId: payload.mediaId,
+        is4k,
       };
+
+      if (typeof payload.profileId === 'number') {
+        body.profileId = payload.profileId;
+      }
+      if (typeof payload.serverId === 'number') {
+        body.serverId = payload.serverId;
+      }
 
       if (payload.mediaType === 'tv') {
         body.seasons = payload.seasons && payload.seasons.length > 0 ? payload.seasons : 'all';

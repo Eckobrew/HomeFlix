@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 
-export const alt = 'HomeFlix - Modern Self-Hosted Streaming Client';
+const appName = process.env.APP_NAME || process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream';
+export const alt = `${appName} - Modern Self-Hosted Streaming Client`;
 export const size = {
   width: 1200,
   height: 630,
@@ -50,7 +51,7 @@ export default async function Image() {
               textShadow: '0 0 40px rgba(220, 38, 38, 0.6)',
             }}
           >
-            HOMEFLIX
+            {appName.toUpperCase()}
           </span>
         </div>
         <div

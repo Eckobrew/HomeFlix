@@ -73,6 +73,10 @@ export interface MediaItem {
   director?: string;
   seasons?: Season[];
   videoStreamUrl?: string;
+  resolution?: string;   // e.g. "4K UHD", "1080p HD", "720p HD", "HD", "SD"
+  videoQuality?: string; // e.g. "4K", "1080p", "720p", "SD"
+  audioQuality?: string; // e.g. "Dolby Atmos", "5.1 Surround", "7.1 Surround", "Stereo", "Mono"
+  hasHdr?: boolean;
 }
 
 export interface MediaRowSection {
@@ -83,6 +87,7 @@ export interface MediaRowSection {
 }
 
 export interface ServerConfig {
+  appName?: string;
   jellyfinUrl: string;
   jellyfinApiKey: string;
   jellyfinUserId: string;
@@ -105,5 +110,8 @@ export interface UserProfile {
 export interface RequestMediaPayload {
   mediaType: 'movie' | 'tv';
   mediaId: number; // TMDB ID
-  seasons?: number[]; // [1, 2, 3] or all
+  seasons?: number[] | 'all'; // [1, 2, 3] or all
+  is4k?: boolean;
+  profileId?: number;
+  serverId?: number;
 }

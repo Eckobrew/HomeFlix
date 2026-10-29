@@ -33,6 +33,8 @@ export interface JellyfinItem {
   SeasonId?: string;
   LocationType?: string;
   Container?: string;
+  Width?: number;
+  Height?: number;
   MediaStreams?: {
     Type?: string;
     Index?: number;
@@ -42,9 +44,30 @@ export interface JellyfinItem {
     DisplayTitle?: string;
     IsDefault?: boolean;
     IsForced?: boolean;
+    Width?: number;
+    Height?: number;
+    Channels?: number;
+    ChannelLayout?: string;
+    VideoRange?: string;
+    VideoRangeType?: string;
+    AudioSpatialFormat?: string;
   }[];
   MediaSources?: {
     Id?: string;
+    Path?: string;
+    MediaStreams?: {
+      Type?: string;
+      Width?: number;
+      Height?: number;
+      Channels?: number;
+      ChannelLayout?: string;
+      VideoRange?: string;
+      VideoRangeType?: string;
+      DisplayTitle?: string;
+      AudioSpatialFormat?: string;
+      IsDefault?: boolean;
+      IsForced?: boolean;
+    }[];
   }[];
 }
 
@@ -506,6 +529,109 @@ export class JellyfinClient {
     }
   }
 
+  private parseMediaQuality(item: JellyfinItem): {
+    resolution?: string;
+    videoQuality?: string;
+    audioQuality?: string;
+    hasHdr?: boolean;
+  } {
+    const streams = item.MediaStreams || item.MediaSources?.[0]?.MediaStreams || [];
+    const videoStream = streams.find((s) => s.Type === 'Video');
+    const audioStream =
+      streams.find((s) => s.Type === 'Audio' && s.IsDefault) ||
+      streams.find((s) => s.Type === 'Audio');
+
+    const width = videoStream?.Width || item.Width || 0;
+    const height = videoStream?.Height || item.Height || 0;
+    const videoTitle = (videoStream?.DisplayTitle || '').toLowerCase();
+    const path = (item.MediaSources?.[0]?.Path || '').toLowerCase();
+
+    let resolution: string | undefined;
+    let videoQuality: string | undefined;
+
+    if (
+      width >= 3800 ||
+      height >= 2000 ||
+      videoTitle.includes('4k') ||
+      videoTitle.includes('2160p') ||
+      path.includes('4k') ||
+      path.includes('2160p') ||
+      path.includes('uhd')
+    ) {
+      resolution = '4K UHD';
+      videoQuality = '4K';
+    } else if (
+      width >= 1800 ||
+      height >= 1000 ||
+      videoTitle.includes('1080p') ||
+      path.includes('1080p') ||
+      videoTitle.includes('fhd')
+    ) {
+      resolution = '1080p HD';
+      videoQuality = '1080p';
+    } else if (
+      width >= 1200 ||
+      height >= 700 ||
+      videoTitle.includes('720p') ||
+      path.includes('720p') ||
+      videoTitle.includes('hd')
+    ) {
+      resolution = '720p HD';
+      videoQuality = '720p';
+    } else if (
+      (height > 0 && height < 700) ||
+      (width > 0 && width < 1200) ||
+      videoTitle.includes('sd') ||
+      path.includes('480p') ||
+      path.includes('576p')
+    ) {
+      resolution = 'SD';
+      videoQuality = 'SD';
+    } else if (item.Type === 'Series') {
+      resolution = 'HD';
+      videoQuality = 'HD';
+    }
+
+    // HDR detection
+    const range = (videoStream?.VideoRange || videoStream?.VideoRangeType || '').toUpperCase();
+    const hasHdr =
+      range.includes('HDR') ||
+      range.includes('DOVI') ||
+      videoTitle.includes('hdr') ||
+      videoTitle.includes('dovi') ||
+      path.includes('hdr') ||
+      path.includes('dolby vision');
+
+    // Audio Quality detection
+    let audioQuality: string | undefined;
+    const audioTitle = (audioStream?.DisplayTitle || '').toLowerCase();
+    const channels = audioStream?.Channels || 0;
+    const layout = (audioStream?.ChannelLayout || '').toLowerCase();
+    const spatial = (audioStream?.AudioSpatialFormat || '').toLowerCase();
+
+    if (spatial.includes('atmos') || audioTitle.includes('atmos') || path.includes('atmos')) {
+      audioQuality = 'Dolby Atmos';
+    } else if (channels >= 8 || layout.includes('7.1') || audioTitle.includes('7.1') || path.includes('7.1')) {
+      audioQuality = '7.1 Surround';
+    } else if (channels >= 5 || layout.includes('5.1') || audioTitle.includes('5.1') || path.includes('5.1')) {
+      audioQuality = '5.1 Surround';
+    } else if (
+      channels === 2 ||
+      layout.includes('stereo') ||
+      audioTitle.includes('stereo') ||
+      path.includes('2.0') ||
+      path.includes('stereo')
+    ) {
+      audioQuality = 'Stereo';
+    } else if (channels === 1 || layout.includes('mono') || audioTitle.includes('mono')) {
+      audioQuality = 'Mono';
+    } else if (audioStream) {
+      audioQuality = 'Stereo';
+    }
+
+    return { resolution, videoQuality, audioQuality, hasHdr };
+  }
+
   private mapJellyfinItem(item: JellyfinItem): MediaItem {
     const isSeries = item.Type === 'Series';
     const isEpisode = item.Type === 'Episode';
@@ -521,6 +647,8 @@ export class JellyfinClient {
     const progressPercent = totalTicks > 0 ? Math.round((playbackTicks / totalTicks) * 100) : 0;
 
     const durationMinutes = totalTicks > 0 ? Math.round(totalTicks / (10000 * 1000 * 60)) : undefined;
+
+    const quality = this.parseMediaQuality(item);
 
     return {
       id: item.Id,
@@ -545,6 +673,10 @@ export class JellyfinClient {
       playbackPositionTicks: playbackTicks,
       totalDurationTicks: totalTicks,
       progressPercent,
+      resolution: quality.resolution,
+      videoQuality: quality.videoQuality,
+      audioQuality: quality.audioQuality,
+      hasHdr: quality.hasHdr,
       cast: item.People?.map((p) => ({
         name: p.Name,
         role: p.Role || p.Type,
@@ -604,7 +736,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/UserItems/Resume?userId=${uid}&Limit=12&Fields=Overview,Genres,OfficialRating,CommunityRating,People,RunTimeTicks,LocationType`,
+        `${this.url}/UserItems/Resume?userId=${uid}&Limit=12&Fields=Overview,Genres,OfficialRating,CommunityRating,People,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
         { headers: this.getHeaders(), next: { revalidate: 30 } }
       );
       if (!res.ok) return [];
@@ -623,7 +755,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items?IncludeItemTypes=${type}&SortBy=DateCreated&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType`,
+        `${this.url}/Users/${uid}/Items?IncludeItemTypes=${type}&SortBy=DateCreated&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
         { headers: this.getHeaders(), next: { revalidate: 60 } }
       );
       if (!res.ok) return [];
@@ -645,7 +777,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items?IncludeItemTypes=Movie,Series&SortBy=CommunityRating&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType`,
+        `${this.url}/Users/${uid}/Items?IncludeItemTypes=Movie,Series&SortBy=CommunityRating&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
         { headers: this.getHeaders(), next: { revalidate: 120 } }
       );
       if (!res.ok) return [];
@@ -746,7 +878,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,SeriesId,SeriesName`,
+        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,SeriesId,SeriesName,MediaStreams,Width,Height,MediaSources`,
         { headers: this.getHeaders(), cache: 'no-store' }
       );
       if (!res.ok) return null;

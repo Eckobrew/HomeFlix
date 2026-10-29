@@ -1,8 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
-import { X, Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Download, CheckCircle, AlertCircle, Loader2, ChevronDown, Sliders } from 'lucide-react';
 import { MediaItem } from '@/types';
+
+interface QualityProfile {
+  id: number;
+  name: string;
+  is4k?: boolean;
+}
 
 interface RequestDialogProps {
   item: MediaItem | null;
@@ -16,9 +22,35 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
   onSuccess,
 }) => {
   const [seasonChoice, setSeasonChoice] = useState<'all' | 'first' | 'latest'>('all');
+  const [qualityProfiles, setQualityProfiles] = useState<QualityProfile[]>([
+    { id: 6, name: 'HD - 720p / 1080p (Recommended)', is4k: false },
+    { id: 4, name: 'HD - 1080p High Quality', is4k: false },
+    { id: 5, name: '4K Ultra HD', is4k: true },
+    { id: 7, name: 'WEB 1080p / 720p', is4k: false },
+    { id: 3, name: '720p Standard', is4k: false },
+    { id: 1, name: 'Any Quality', is4k: false },
+  ]);
+  const [selectedProfileId, setSelectedProfileId] = useState<number>(6);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch actual quality profiles from Sonarr/Radarr via Seerr
+  useEffect(() => {
+    if (!item) return;
+    const type = item.type === 'Series' ? 'tv' : 'movie';
+    fetch(`/api/request?type=${type}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.profiles && Array.isArray(data.profiles) && data.profiles.length > 0) {
+          setQualityProfiles(data.profiles);
+          if (data.defaultProfileId) {
+            setSelectedProfileId(data.defaultProfileId);
+          }
+        }
+      })
+      .catch(console.error);
+  }, [item?.type, item?.id]);
 
   if (!item) return null;
 
@@ -39,6 +71,8 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
         else if (seasonChoice === 'latest' && item.seasonsCount) seasons = [item.seasonsCount];
       }
 
+      const selectedProfile = qualityProfiles.find((p) => p.id === selectedProfileId);
+
       const res = await fetch('/api/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -46,6 +80,8 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
           mediaType: item.type === 'Series' ? 'tv' : 'movie',
           mediaId: tmdbId,
           seasons,
+          profileId: selectedProfileId,
+          is4k: Boolean(selectedProfile?.is4k),
         }),
       });
 
@@ -156,6 +192,31 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
             </div>
           </div>
         )}
+
+        {/* Quality Selector Dropdown */}
+        <div className="space-y-2 pt-2 border-t border-neutral-800">
+          <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
+            <span className="flex items-center space-x-1.5">
+              <Sliders size={13} className="text-red-500" />
+              <span>Select Download Quality:</span>
+            </span>
+            <span className="text-[11px] text-neutral-400 font-normal">Radarr / Sonarr Profile</span>
+          </label>
+          <div className="relative">
+            <select
+              value={selectedProfileId}
+              onChange={(e) => setSelectedProfileId(Number(e.target.value))}
+              className="w-full bg-neutral-900 border border-neutral-700 text-white text-xs font-medium rounded-lg px-3 py-2.5 appearance-none focus:outline-none focus:border-red-500 transition-colors cursor-pointer pr-9"
+            >
+              {qualityProfiles.map((q) => (
+                <option key={q.id} value={q.id} className="bg-neutral-900 text-white">
+                  {q.name} {q.is4k ? '• (4K UHD)' : ''}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
+          </div>
+        </div>
 
         {/* Success / Error Feedback */}
         {resultMessage && (

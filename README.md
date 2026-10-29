@@ -1,13 +1,13 @@
-# 🍿 HomeFlix
+# 🍿 HomeStream (HomeFlix)
 
 > **A modern, responsive web companion and streaming frontend built specifically for your self-hosted media stack.**
-> Seamlessly interfaces with **Jellyfin** for local media streaming and **Seerr** (Jellyseerr / Overseerr) for catalog searching and 1-click automated requests. Easily deployed via **Proxmox VE LXC** or Docker.
+> Seamlessly interfaces with **Jellyfin** for local media streaming and **Seerr** (Jellyseerr / Overseerr) for catalog searching and 1-click automated requests. Easily deployed via **Proxmox VE LXC** (as HomeFlix on LXC 111) or Docker.
 
 ---
 
 ## ⚖️ Disclaimer
 
-**HomeFlix** is an independent, open-source, non-commercial companion client designed solely to interface with personal, self-hosted media server stacks (such as Jellyfin and Jellyseerr/Overseerr).
+**HomeStream** (deployed as **HomeFlix**) is an independent, open-source, non-commercial companion client designed solely to interface with personal, self-hosted media server stacks (such as Jellyfin and Jellyseerr/Overseerr).
 
 This project is **not** affiliated with, endorsed by, sponsored by, or associated in any way with Netflix, Inc. or any commercial streaming service provider. All product names, logos, and brands are property of their respective trademark owners. Use of these names, logos, and brands does not imply endorsement or affiliation.
 
@@ -81,13 +81,13 @@ flowchart LR
 Run this command directly in your **Proxmox VE Host Shell** (`pve` node):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Eckobrew/HomeFlix/main/ct/homeflix.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Eckobrew/HomeStream/main/ct/homeflix.sh)"
 ```
 
 Built following the official **[community-scripts.org](https://community-scripts.org)** architecture:
 1. Presents the standard Default Settings vs Advanced Settings dialog.
 2. Creates an optimized Debian 12 LXC container with 2 vCPUs, 2GB RAM, and 8GB storage.
-3. Configures Node.js 20, builds HomeFlix, and enables the `homeflix.service` systemd daemon.
+3. Configures Node.js 20, builds HomeStream/HomeFlix, and enables the `homeflix.service` systemd daemon.
 4. Provides native container management via the `update` command inside the container.
 5. Outputs your access URL: `http://<LXC_IP>:3000`.
 
@@ -95,11 +95,11 @@ Built following the official **[community-scripts.org](https://community-scripts
 
 ### Option 2: Docker Compose (Existing LXC or VM)
 
-If you already have an LXC container or Linux VM with Docker:
+If you already have an LXC container (e.g. LXC 111) or Linux VM with Docker:
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/Eckobrew/HomeFlix.git /opt/homeflix
+   git clone https://github.com/Eckobrew/HomeStream.git /opt/homeflix
    cd /opt/homeflix
    ```
 

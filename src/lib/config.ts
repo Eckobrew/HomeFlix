@@ -63,11 +63,18 @@ export const getServerConfig = (): ServerConfig => {
     process.env.SEERR_API_KEY ||
     '';
 
+  const appName =
+    fileConfig.appName ||
+    process.env.APP_NAME ||
+    process.env.NEXT_PUBLIC_APP_NAME ||
+    'HomeStream';
+
   const isConfigured = Boolean(
     (jellyfinUrl && jellyfinApiKey) || (seerrUrl && seerrApiKey)
   );
 
   return {
+    appName,
     jellyfinUrl: sanitizeUrl(jellyfinUrl),
     jellyfinApiKey,
     jellyfinUserId,
@@ -82,6 +89,7 @@ export const saveServerConfig = (newConfig: Partial<ServerConfig>): ServerConfig
   const merged: ServerConfig = {
     ...current,
     ...newConfig,
+    appName: newConfig.appName || current.appName || 'HomeStream',
     jellyfinUrl: sanitizeUrl(newConfig.jellyfinUrl !== undefined ? newConfig.jellyfinUrl : current.jellyfinUrl),
     seerrUrl: sanitizeUrl(newConfig.seerrUrl !== undefined ? newConfig.seerrUrl : current.seerrUrl),
     jellyfinApiKey: newConfig.jellyfinApiKey !== undefined ? newConfig.jellyfinApiKey : current.jellyfinApiKey,

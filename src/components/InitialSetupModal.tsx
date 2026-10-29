@@ -259,8 +259,8 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
               </h1>
               <p className="text-xs sm:text-sm text-neutral-400 mt-0.5">
                 {step === 1
-                  ? 'Connect HomeFlix to your Jellyfin library and optional Overseerr gateway.'
-                  : 'Select which Jellyfin user account(s) you would like to import into HomeFlix.'}
+                  ? `Connect ${process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream'} to your Jellyfin library and optional Overseerr gateway.`
+                  : `Select which Jellyfin user account(s) you would like to import into ${process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream'}.`}
               </p>
             </div>
 

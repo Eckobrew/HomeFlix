@@ -382,9 +382,15 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                   ? `${item.durationMinutes}m`
                   : item.year || ''}
               </span>
-              <span className="border border-gray-400/40 text-[9px] px-1 rounded font-mono text-gray-400">
-                HD
-              </span>
+              {item.resolution ? (
+                <span className="border border-gray-400/40 text-[9px] px-1 rounded font-mono text-gray-300">
+                  {item.resolution === '4K UHD' ? '4K' : item.resolution === '1080p HD' ? 'HD' : item.resolution}
+                </span>
+              ) : item.source !== 'seerr' ? (
+                <span className="border border-gray-400/40 text-[9px] px-1 rounded font-mono text-gray-400">
+                  HD
+                </span>
+              ) : null}
             </div>
 
             {/* Genres */}

@@ -5,6 +5,7 @@ import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Se
 import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
+  appName?: string;
   onSearchChange: (query: string) => void;
   searchQuery: string;
   isDemoMode?: boolean;
@@ -16,6 +17,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
+  appName,
   onSearchChange,
   searchQuery,
   jellyfinConnected,
@@ -78,8 +80,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             }}
             className="cursor-pointer flex items-center select-none group"
           >
-            <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-wider text-red-600 transition-transform group-hover:scale-105 duration-200">
-              HOMEFLIX
+            <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-wider text-red-600 transition-transform group-hover:scale-105 duration-200 uppercase">
+              {appName || process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream'}
             </span>
           </div>
 

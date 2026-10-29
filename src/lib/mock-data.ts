@@ -81,6 +81,9 @@ export const MOCK_HERO_ITEM: MediaItem = {
   seasonsCount: 4,
   source: 'demo',
   status: 'available',
+  resolution: '4K UHD',
+  audioQuality: 'Dolby Atmos',
+  hasHdr: true,
   cast: [
     { name: 'Millie Bobby Brown', role: 'Eleven' },
     { name: 'Finn Wolfhard', role: 'Mike Wheeler' },

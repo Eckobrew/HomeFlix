@@ -3,7 +3,7 @@
 # Copyright (c) 2021-2026 community-scripts ORG
 # Author: Eckobrew
 # License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
-# Source: https://github.com/Eckobrew/HomeFlix
+# Source: https://github.com/Eckobrew/HomeStream
 
 source /dev/stdin <<<"$FUNCTIONS_FILE_PATH"
 color
@@ -25,7 +25,7 @@ msg_ok "Installed Dependencies"
 NODE_VERSION="20" setup_nodejs
 
 msg_info "Installing HomeFlix (Patience)"
-$STD git clone https://github.com/Eckobrew/HomeFlix.git /opt/homeflix
+$STD git clone https://github.com/Eckobrew/HomeStream.git /opt/homeflix
 cd /opt/homeflix
 $STD npm install
 export NEXT_TELEMETRY_DISABLED=1

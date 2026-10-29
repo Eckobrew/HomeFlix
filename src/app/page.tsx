@@ -33,7 +33,8 @@ export default function Home() {
   const [requestItem, setRequestItem] = useState<MediaItem | null>(null);
 
   // Server credentials for player
-  const [serverConfig, setServerConfig] = useState<{ jellyfinUrl: string; hasJellyfinKey: boolean }>({
+  const [serverConfig, setServerConfig] = useState<{ appName?: string; jellyfinUrl: string; hasJellyfinKey: boolean }>({
+    appName: '',
     jellyfinUrl: '',
     hasJellyfinKey: false,
   });
@@ -267,6 +268,12 @@ export default function Home() {
   // Dynamic 5 rotating Hero Items for the active tab (random load + cycle)
   const displayedHeroItems = useMemo(() => {
     if (activeTab === 'requests') {
+      const recommendedSec = requestSections.find((s) => s.id === 'requests-recommended');
+      if (recommendedSec && recommendedSec.items.length > 0) {
+        const candidates = recommendedSec.items.filter((i) => i.backdropUrl && i.overview);
+        if (candidates.length > 0) return candidates.slice(0, 5);
+        return recommendedSec.items.slice(0, 5);
+      }
       const requestCandidates = displayedSections.flatMap((s) => s.items).filter((i) => i.backdropUrl);
       if (requestCandidates.length > 0) return requestCandidates.slice(0, 5);
     }
@@ -283,12 +290,13 @@ export default function Home() {
       return sectionSeries.slice(0, 5);
     }
     return heroItems.length > 0 ? heroItems : (hero ? [hero] : []);
-  }, [heroItems, hero, displayedSections, activeTab]);
+  }, [heroItems, hero, displayedSections, requestSections, activeTab]);
 
   return (
     <main className="min-h-screen bg-[#141414] text-white selection:bg-red-600 selection:text-white">
       {/* Navigation Header */}
       <Navbar
+        appName={serverConfig.appName}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isDemoMode={isDemoMode}
@@ -337,6 +345,7 @@ export default function Home() {
               items={displayedHeroItems}
               onPlay={handlePlay}
               onOpenModal={handleOpenModal}
+              onRequest={handleRequest}
             />
           )}
 

@@ -1,19 +1,21 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, RotateCcw, Info, Volume2, VolumeX, Plus, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, RotateCcw, Info, Volume2, VolumeX, Plus, Check, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { MediaItem } from '@/types';
 
 interface HeroBannerProps {
   items: MediaItem[];
   onPlay: (item: MediaItem) => void;
   onOpenModal: (item: MediaItem) => void;
+  onRequest?: (item: MediaItem) => void;
 }
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
   items,
   onPlay,
   onOpenModal,
+  onRequest,
 }) => {
   // Randomly pick initial index on load
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -206,9 +208,26 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           {typeof currentItem.durationMinutes === 'number' && currentItem.durationMinutes > 0 && (
             <span>{Math.floor(currentItem.durationMinutes / 60)}h {currentItem.durationMinutes % 60}m</span>
           )}
-          <span className="border border-gray-400/40 text-[10px] px-1 py-0.5 rounded font-mono text-gray-400">
-            4K UHD
-          </span>
+          {/* Dynamic Resolution & HDR Badges */}
+          {currentItem.resolution ? (
+            <span className="border border-gray-400/40 text-[10px] px-1 py-0.5 rounded font-mono text-gray-300">
+              {currentItem.resolution}
+            </span>
+          ) : currentItem.source !== 'seerr' ? (
+            <span className="border border-gray-400/40 text-[10px] px-1 py-0.5 rounded font-mono text-gray-400">
+              HD
+            </span>
+          ) : null}
+          {currentItem.hasHdr && (
+            <span className="border border-amber-500/70 text-[10px] px-1.5 py-0.5 rounded font-mono text-amber-400 font-bold bg-amber-950/30">
+              HDR
+            </span>
+          )}
+          {currentItem.audioQuality && (
+            <span className="border border-gray-400/40 text-[10px] px-1 py-0.5 rounded font-mono text-gray-300">
+              {currentItem.audioQuality}
+            </span>
+          )}
         </div>
 
         {/* Overview */}
@@ -221,14 +240,28 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2.5 sm:space-x-3 pt-2 pointer-events-auto">
-          {/* Play / Resume Button */}
-          <button
-            onClick={() => onPlay(currentItem)}
-            className="flex items-center space-x-1.5 sm:space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-4 py-2 sm:px-6 sm:py-2.5 rounded transition-transform active:scale-95 shadow-md text-sm sm:text-base"
-          >
-            <Play size={18} className="fill-black sm:w-5 sm:h-5" />
-            <span>{hasResume ? 'Resume' : 'Play'}</span>
-          </button>
+          {/* If item is requestable (e.g. from Seerr on requests tab) */}
+          {currentItem.status !== 'available' ? (
+            <button
+              onClick={() => onRequest && onRequest(currentItem)}
+              className="flex items-center space-x-1.5 sm:space-x-2 bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 sm:px-6 sm:py-2.5 rounded transition-transform active:scale-95 shadow-md text-sm sm:text-base"
+            >
+              <Download size={18} className="sm:w-5 sm:h-5" />
+              <span>
+                {currentItem.status === 'requested' || currentItem.status === 'processing'
+                  ? 'Requested'
+                  : 'Request Download'}
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onPlay(currentItem)}
+              className="flex items-center space-x-1.5 sm:space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-4 py-2 sm:px-6 sm:py-2.5 rounded transition-transform active:scale-95 shadow-md text-sm sm:text-base"
+            >
+              <Play size={18} className="fill-black sm:w-5 sm:h-5" />
+              <span>{hasResume ? 'Resume' : 'Play'}</span>
+            </button>
+          )}
 
           {/* Restart Button when item has saved progress */}
           {hasResume && (

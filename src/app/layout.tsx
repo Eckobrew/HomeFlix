@@ -16,15 +16,18 @@ const geistMono = localFont({
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://homeflix.eckonet.uk';
+const appName = process.env.APP_NAME || process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "HomeFlix - Modern Self-Hosted Streaming Client",
-    template: "%s | HomeFlix",
+    default: `${appName} - Modern Self-Hosted Streaming Client`,
+    template: `%s | ${appName}`,
   },
-  description: "A modern self-hosted streaming web companion integrating Jellyfin and Seerr (Jellyseerr/Overseerr) with multi-profile continue watching and Google Cast.",
+  description: `A modern self-hosted streaming web companion integrating Jellyfin and Seerr (Jellyseerr/Overseerr) with multi-profile continue watching and Google Cast.`,
   keywords: [
+    appName,
+    "HomeStream",
     "HomeFlix",
     "Jellyfin",
     "Overseerr",
@@ -36,9 +39,9 @@ export const metadata: Metadata = {
     "TV Shows",
     "Media Server",
   ],
-  authors: [{ name: "HomeFlix" }],
-  creator: "HomeFlix",
-  publisher: "HomeFlix",
+  authors: [{ name: appName }],
+  creator: appName,
+  publisher: appName,
   formatDetection: {
     email: false,
     address: false,
@@ -48,16 +51,16 @@ export const metadata: Metadata = {
     canonical: siteUrl,
   },
   openGraph: {
-    title: "HomeFlix - Modern Self-Hosted Streaming Client",
+    title: `${appName} - Modern Self-Hosted Streaming Client`,
     description: "Watch your personal movie and TV collection with multi-profile continue watching, Chromecast support, and 1-click media requests.",
     url: siteUrl,
-    siteName: "HomeFlix",
+    siteName: appName,
     locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "HomeFlix - Modern Self-Hosted Streaming Client",
+    title: `${appName} - Modern Self-Hosted Streaming Client`,
     description: "Watch your personal movie and TV collection with multi-profile continue watching and Chromecast support.",
   },
   robots: {
@@ -107,7 +110,7 @@ export default function RootLayout({
                 {
                   "@type": "SoftwareApplication",
                   "@id": `${siteUrl}/#software`,
-                  "name": "HomeFlix",
+                  "name": appName,
                   "applicationCategory": "EntertainmentApplication",
                   "operatingSystem": "Web, Android, iOS, ChromeOS",
                   "offers": {

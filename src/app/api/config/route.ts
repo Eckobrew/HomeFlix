@@ -15,6 +15,7 @@ export async function GET() {
   const isSetupNeeded = !isJellyfinConfigured || profiles.length === 0;
 
   return NextResponse.json({
+    appName: config.appName || 'HomeStream',
     jellyfinUrl: config.jellyfinUrl,
     hasJellyfinKey: Boolean(config.jellyfinApiKey),
     jellyfinUserId: config.jellyfinUserId,
