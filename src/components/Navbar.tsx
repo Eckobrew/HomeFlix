@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User } from 'lucide-react';
+import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
@@ -299,7 +299,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
                 <div className="border-t border-neutral-800/80 my-1" />
 
-                {/* Open Who's watching modal */}
+                {/* Add Profile & Manage Profiles */}
+                <button
+                  onClick={() => {
+                    openSelector();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                >
+                  <Plus size={15} className="text-neutral-400" />
+                  <span>Add Profile</span>
+                </button>
+
                 <button
                   onClick={() => {
                     openSelector();

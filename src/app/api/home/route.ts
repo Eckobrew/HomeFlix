@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
+import { resolveJellyfinUserId } from '@/lib/profiles';
 import {
   MOCK_HERO_ITEM,
   MOCK_CONTINUE_WATCHING,
@@ -18,7 +19,8 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get('userId') ||
     request.cookies.get('homeflix_profile_id')?.value;
 
-  const jellyfin = new JellyfinClient(undefined, undefined, profileId);
+  const targetUserId = await resolveJellyfinUserId(profileId);
+  const jellyfin = new JellyfinClient(undefined, undefined, targetUserId);
   const seerr = new SeerrClient();
 
   const isJellyfinActive = jellyfin.isConfigured();

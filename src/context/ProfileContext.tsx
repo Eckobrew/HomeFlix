@@ -11,6 +11,8 @@ interface ProfileContextType {
   openSelector: () => void;
   closeSelector: () => void;
   selectProfile: (profileId: string) => Promise<void>;
+  createProfile: (name: string, paletteIndex?: number) => Promise<UserProfile | null>;
+  deleteProfile: (profileId: string) => Promise<boolean>;
   refreshProfiles: () => Promise<void>;
 }
 
@@ -66,7 +68,7 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         await fetch('/api/profiles', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ profileId: target.id }),
+          body: JSON.stringify({ action: 'select', profileId: target.id }),
         });
       } catch (err) {
         console.error('Failed to persist profile selection to server:', err);
@@ -84,6 +86,74 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [profiles]
   );
 
+  const createProfile = useCallback(
+    async (name: string, paletteIndex?: number): Promise<UserProfile | null> => {
+      try {
+        const res = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'create', name, paletteIndex }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profiles) setProfiles(data.profiles);
+          if (data.profile) {
+            setActiveProfile(data.profile);
+            setIsSelectorOpen(false);
+            document.cookie = `homeflix_profile_id=${data.profile.id}; path=/; max-age=31536000; SameSite=Lax`;
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(
+                new CustomEvent('homeflix-profile-changed', {
+                  detail: { profile: data.profile },
+                })
+              );
+            }
+            return data.profile;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to create profile:', err);
+      }
+      return null;
+    },
+    []
+  );
+
+  const deleteProfile = useCallback(
+    async (profileId: string): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete', profileId }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profiles) setProfiles(data.profiles);
+          if (data.activeProfileId) {
+            const nextActive = (data.profiles || []).find((p: UserProfile) => p.id === data.activeProfileId);
+            if (nextActive) {
+              setActiveProfile(nextActive);
+              document.cookie = `homeflix_profile_id=${nextActive.id}; path=/; max-age=31536000; SameSite=Lax`;
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('homeflix-profile-changed', {
+                    detail: { profile: nextActive },
+                  })
+                );
+              }
+            }
+          }
+          return true;
+        }
+      } catch (err) {
+        console.error('Failed to delete profile:', err);
+      }
+      return false;
+    },
+    []
+  );
+
   const openSelector = useCallback(() => setIsSelectorOpen(true), []);
   const closeSelector = useCallback(() => setIsSelectorOpen(false), []);
 
@@ -97,6 +167,8 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         openSelector,
         closeSelector,
         selectProfile,
+        createProfile,
+        deleteProfile,
         refreshProfiles: fetchProfiles,
       }}
     >

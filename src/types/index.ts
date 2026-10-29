@@ -99,6 +99,7 @@ export interface UserProfile {
   initials: string;    // e.g. "NA"
   avatarUrl?: string;  // Jellyfin avatar image URL if available
   isAdministrator?: boolean;
+  jellyfinUserId?: string;
 }
 
 export interface RequestMediaPayload {

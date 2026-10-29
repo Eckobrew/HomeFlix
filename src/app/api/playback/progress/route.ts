@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
+import { resolveJellyfinUserId } from '@/lib/profiles';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,8 @@ export async function POST(request: NextRequest) {
     }
 
     const profileId = userId || request.cookies.get('homeflix_profile_id')?.value;
-    const jellyfin = new JellyfinClient(undefined, undefined, profileId);
+    const targetUserId = await resolveJellyfinUserId(profileId);
+    const jellyfin = new JellyfinClient(undefined, undefined, targetUserId);
     if (!jellyfin.isConfigured()) {
       return NextResponse.json({ success: false });
     }

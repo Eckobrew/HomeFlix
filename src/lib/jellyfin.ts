@@ -123,6 +123,67 @@ export class JellyfinClient {
     return `${this.url}/Users/${userId}/Images/Primary?quality=90`;
   }
 
+  async findUserByName(name: string): Promise<{ id: string; name: string } | null> {
+    if (!this.isConfigured() || !name) return null;
+    try {
+      const res = await fetch(`${this.url}/Users`, {
+        headers: this.getHeaders(),
+        cache: 'no-store',
+      });
+      if (!res.ok) return null;
+      const users = await res.json();
+      if (!Array.isArray(users)) return null;
+      const target = users.find(
+        (u: any) => (u.Name || '').trim().toLowerCase() === name.trim().toLowerCase()
+      );
+      if (target) {
+        return { id: target.Id, name: target.Name };
+      }
+      return null;
+    } catch (e) {
+      console.error('Error finding Jellyfin user by name:', e);
+      return null;
+    }
+  }
+
+  async createUser(name: string): Promise<{ id: string; name: string } | null> {
+    if (!this.isConfigured() || !name) return null;
+    try {
+      const res = await fetch(`${this.url}/Users/New`, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ Name: name.trim() }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error(`Failed to create Jellyfin user (${res.status}):`, text);
+        return null;
+      }
+      const data = await res.json();
+      return { id: data.Id, name: data.Name };
+    } catch (e) {
+      console.error('Error creating Jellyfin user:', e);
+      return null;
+    }
+  }
+
+  async deleteUser(userId: string): Promise<boolean> {
+    if (!this.isConfigured() || !userId) return false;
+    try {
+      const res = await fetch(`${this.url}/Users/${userId}`, {
+        method: 'DELETE',
+        headers: this.getHeaders(),
+      });
+      return res.ok;
+    } catch (e) {
+      console.error('Error deleting Jellyfin user:', e);
+      return false;
+    }
+  }
+
   async getUsers(): Promise<UserProfile[]> {
     if (!this.isConfigured()) {
       return [
