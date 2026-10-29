@@ -549,7 +549,7 @@ export class JellyfinClient {
       const uid = await this.getFirstUserId();
       const res = await fetch(
         `${this.url}/Users/${uid}/Items/${itemId}?Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,SeriesId,SeriesName`,
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders(), cache: 'no-store' }
       );
       if (!res.ok) return null;
       const data: JellyfinItem = await res.json();
@@ -588,7 +588,7 @@ export class JellyfinClient {
       const uid = await this.getFirstUserId();
       const res = await fetch(
         `${this.url}/Shows/${seriesId}/Seasons?userId=${uid}&Fields=Overview,ItemCounts`,
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders(), cache: 'no-store' }
       );
       if (!res.ok) return [];
       const data = await res.json();
@@ -598,7 +598,7 @@ export class JellyfinClient {
         // Fallback: Fetch all episodes directly for the series and group by ParentIndexNumber
         const allEpRes = await fetch(
           `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType`,
-          { headers: this.getHeaders() }
+          { headers: this.getHeaders(), cache: 'no-store' }
         );
         if (allEpRes.ok) {
           const allEpData = await allEpRes.json();
@@ -637,7 +637,7 @@ export class JellyfinClient {
         // Fetch episodes for season
         const epRes = await fetch(
           `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType`,
-          { headers: this.getHeaders() }
+          { headers: this.getHeaders(), cache: 'no-store' }
         );
         let episodes: Episode[] = [];
         if (epRes.ok) {
