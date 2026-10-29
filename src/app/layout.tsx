@@ -31,14 +31,33 @@ export default function RootLayout({
     <html lang="en" className="dark bg-[#141414]">
       <head>
         <meta name="theme-color" content="#141414" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window['__onGCastApiAvailable'] = function(isAvailable) {
+                if (isAvailable && window.cast && window.cast.framework) {
+                  window.__castFrameworkReady = true;
+                  try {
+                    window.cast.framework.CastContext.getInstance().setOptions({
+                      receiverApplicationId: 'CC1AD845',
+                      autoJoinPolicy: 'origin_scoped'
+                    });
+                  } catch (e) {
+                    console.warn('[Cast SDK] setOptions error:', e);
+                  }
+                }
+              };
+            `,
+          }}
+        />
+        <script
+          src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
+          async
+        />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#141414] text-white`}
       >
-        <Script
-          src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"
-          strategy="afterInteractive"
-        />
         {children}
       </body>
     </html>

@@ -331,10 +331,37 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
     setIsCastConnecting(true);
 
-    // 1. Google Cast Framework
+    // 1. Guard against insecure HTTP contexts where Chrome explicitly blocks casting
+    if (
+      typeof window !== 'undefined' &&
+      !window.isSecureContext &&
+      window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1'
+    ) {
+      setIsCastConnecting(false);
+      const httpsUrl = `https://homeflix.eckonet.uk${window.location.pathname}${window.location.search}`;
+      const confirmed = window.confirm(
+        'Chromecast casting is disabled by Google Chrome on unencrypted HTTP.\n\nWould you like to switch to HTTPS at https://homeflix.eckonet.uk now?'
+      );
+      if (confirmed) {
+        window.location.href = httpsUrl;
+      }
+      return;
+    }
+
+    // 2. Google Cast Framework (Chrome macOS, Windows, Linux, Android)
     if (typeof window !== 'undefined' && (window as any).cast?.framework) {
       try {
         const castContext = (window as any).cast.framework.CastContext.getInstance();
+        try {
+          castContext.setOptions({
+            receiverApplicationId: (window as any).chrome?.cast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID || 'CC1AD845',
+            autoJoinPolicy: (window as any).chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED,
+          });
+        } catch (initErr) {
+          // Already initialized
+        }
         await castContext.requestSession();
         return;
       } catch (err: any) {
@@ -346,7 +373,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       }
     }
 
-    // 2. HTMLMediaElement Remote Playback API (Android / Samsung Internet)
+    // 3. HTMLMediaElement Remote Playback API (Android Chrome / Samsung Internet)
     const video = videoRef.current;
     if (video && 'remote' in video && (video as any).remote?.prompt) {
       try {
@@ -363,7 +390,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
     setIsCastConnecting(false);
     alert(
-      'To cast to Chromecast or Google TV:\n• Make sure your device is on the same Wi-Fi network as your Chromecast.\n• Use Google Chrome, Samsung Internet, or Microsoft Edge.'
+      'To cast to Chromecast or Google TV:\n• Open HomeFlix via HTTPS: https://homeflix.eckonet.uk\n• Ensure your phone/Mac is on the same Wi-Fi as your Chromecast.\n• Use Google Chrome or Samsung Internet.'
     );
   }, [isCasting, handleDisconnectCast]);
 
@@ -1510,11 +1537,6 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
                   <Cast className="w-4 h-4 sm:w-5 sm:h-5" />
                   {isCasting && (
                     <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-600 rounded-full animate-ping" />
-                  )}
-                  {typeof window !== 'undefined' && Boolean((window as any).cast?.framework) && (
-                    React.createElement('google-cast-launcher', {
-                      className: 'absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto',
-                    })
                   )}
                 </button>
               </div>
