@@ -453,8 +453,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             </div>
 
             {/* Title */}
-            <div className="font-bold text-white text-sm truncate">
-              {item.title}
+            <div>
+              {item.type === 'Episode' && item.seriesName ? (
+                <>
+                  <div className="font-bold text-white text-sm truncate leading-snug">
+                    {item.seriesName}
+                  </div>
+                  <div className="text-neutral-400 text-xs truncate">
+                    {item.title}
+                  </div>
+                </>
+              ) : (
+                <div className="font-bold text-white text-sm truncate">
+                  {item.title}
+                </div>
+              )}
             </div>
 
             {/* Badges & Meta */}

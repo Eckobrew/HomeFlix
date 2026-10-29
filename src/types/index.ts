@@ -71,6 +71,8 @@ export interface MediaItem {
   progressPercent?: number; // 0 - 100 for Continue Watching
   cast?: CastMember[];
   director?: string;
+  seriesId?: string;
+  seriesName?: string;
   seasons?: Season[];
   videoStreamUrl?: string;
   trailerKey?: string; // YouTube video key e.g. "dfeUzm6KF4g"

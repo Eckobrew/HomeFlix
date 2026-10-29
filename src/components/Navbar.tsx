@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Server, LogOut } from 'lucide-react';
+import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Server, LogOut, Menu } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
@@ -16,6 +16,7 @@ interface NavbarProps {
   onOpenServerSetup?: () => void;
   isExternal?: boolean;
   onLogout?: () => void;
+  onToggleSidebar?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -29,6 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenServerSetup,
   isExternal,
   onLogout,
+  onToggleSidebar,
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -75,7 +77,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         }`}
       >
         {/* Left side: Logo & Navigation */}
-        <div className="flex items-center space-x-3 sm:space-x-6 md:space-x-8">
+        <div className="flex items-center space-x-2.5 sm:space-x-5 md:space-x-7">
+          {/* Sidebar Toggle Hamburger */}
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className="p-1.5 -ml-1 sm:-ml-2 rounded-lg text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors"
+              title="Browse Jellyfin Libraries (A–Z)"
+              aria-label="Open Jellyfin Library Sidebar"
+            >
+              <Menu size={22} />
+            </button>
+          )}
+
           {/* HomeFlix Logo */}
           <div
             onClick={() => {

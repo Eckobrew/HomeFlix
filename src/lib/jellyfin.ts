@@ -6,7 +6,7 @@ export interface JellyfinItem {
   Name: string;
   OriginalTitle?: string;
   Overview?: string;
-  Type: 'Movie' | 'Series' | 'Episode';
+  Type: 'Movie' | 'Series' | 'Episode' | 'Season' | 'Folder' | string;
   ProductionYear?: number;
   PremiereDate?: string;
   OfficialRating?: string;
@@ -645,7 +645,7 @@ export class JellyfinClient {
     const posterUrl = this.getImageUrl(item.Id, 'Primary', 600);
     const backdropUrl = (item.BackdropImageTags && item.BackdropImageTags.length > 0)
       ? this.getImageUrl(item.Id, 'Backdrop', 1920)
-      : posterUrl;
+      : (item.SeriesId ? this.getImageUrl(item.SeriesId, 'Backdrop', 1920) : posterUrl);
 
     const playbackTicks = item.UserData?.PlaybackPositionTicks || 0;
     const totalTicks = item.RunTimeTicks || 0;
@@ -673,6 +673,8 @@ export class JellyfinClient {
       seasonsCount: isSeries && typeof item.ChildCount === 'number' && item.ChildCount > 0 ? item.ChildCount : undefined,
       source: 'jellyfin',
       jellyfinId: item.Id,
+      seriesId: item.SeriesId,
+      seriesName: item.SeriesName,
       tmdbId: item.ProviderIds?.Tmdb ? Number(item.ProviderIds.Tmdb) : undefined,
       status: 'available',
       played: Boolean(item.UserData?.Played),
@@ -745,12 +747,15 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/UserItems/Resume?userId=${uid}&Limit=12&Fields=Overview,Genres,OfficialRating,CommunityRating,People,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
+        `${this.url}/UserItems/Resume?userId=${uid}&Limit=16&Fields=Overview,Genres,OfficialRating,CommunityRating,People,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources,SeriesId,SeriesName,SeasonId,IndexNumber,ParentIndexNumber`,
         { headers: this.getHeaders(), next: { revalidate: 30 } }
       );
       if (!res.ok) return [];
       const data = await res.json();
-      const validItems = (data.Items || []).filter((item: JellyfinItem) => item.LocationType !== 'Virtual');
+      // Filter out Virtual items and Season containers (episodes and movies are what users actually resume)
+      const validItems = (data.Items || []).filter(
+        (item: JellyfinItem) => item.LocationType !== 'Virtual' && item.Type !== 'Season'
+      );
       const mapped = validItems.map((item: JellyfinItem) => this.mapJellyfinItem(item));
       return await this.attachPlayableStreamsToItems(mapped);
     } catch (e) {
@@ -815,9 +820,9 @@ export class JellyfinClient {
         if (candidate) return candidate.Id;
       }
 
-      // Fallback: fetch episodes of the series, skipping Virtual or Specials
+      // Fallback: fetch non-missing episodes of the series, skipping Virtual or Specials
       const epRes = await fetch(
-        `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Limit=20&Fields=LocationType,ParentIndexNumber,IndexNumber`,
+        `${this.url}/Shows/${seriesId}/Episodes?UserId=${uid}&IsMissing=false&Limit=30&Fields=LocationType,ParentIndexNumber,IndexNumber`,
         { headers: this.getHeaders(), next: { revalidate: 120 } }
       );
       if (epRes.ok) {

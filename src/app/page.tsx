@@ -8,6 +8,8 @@ import { MediaModal } from '@/components/MediaModal';
 import { BuiltinPlayer } from '@/components/BuiltinPlayer';
 import { RequestDialog } from '@/components/RequestDialog';
 import { SearchOverlay } from '@/components/SearchOverlay';
+import { Sidebar } from '@/components/Sidebar';
+import { LibraryCatalog } from '@/components/LibraryCatalog';
 import { MediaItem, MediaRowSection, Episode } from '@/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
@@ -27,6 +29,14 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [isServerSetupOpen, setIsServerSetupOpen] = useState(false);
+
+  // Dedicated Hideable Sidebar & A-Z Library Catalog States
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeLibrary, setActiveLibrary] = useState<'movies' | 'tv' | 'youtube' | null>(null);
+
+  // Netflix-style Category Rows for Movies and TV Shows Pages
+  const [movieCategories, setMovieCategories] = useState<MediaRowSection[]>([]);
+  const [tvCategories, setTvCategories] = useState<MediaRowSection[]>([]);
 
   // Modals & Overlays
   const [modalItem, setModalItem] = useState<MediaItem | null>(null);
@@ -85,6 +95,22 @@ export default function Home() {
       console.error('Logout failed:', e);
     }
   };
+
+  const fetchCategories = useCallback(async (type: 'movies' | 'series') => {
+    try {
+      const res = await fetch(`/api/categories/${type}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (type === 'movies') {
+          setMovieCategories(data.sections || []);
+        } else {
+          setTvCategories(data.sections || []);
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to fetch ${type} categories:`, e);
+    }
+  }, []);
 
   const loadHomeData = useCallback(async (userId?: string) => {
     try {
@@ -177,9 +203,30 @@ export default function Home() {
     }
   }, []);
 
+  // Prefetch categories and support keyboard shortcut [ for sidebar
+  useEffect(() => {
+    // Background prefetch
+    fetchCategories('movies');
+    fetchCategories('series');
+
+    const handleKey = (e: KeyboardEvent) => {
+      const activeTag = (e.target as HTMLElement)?.tagName;
+      if (['INPUT', 'TEXTAREA'].includes(activeTag)) return;
+      if (e.key === '[' || e.key === ']') {
+        setIsSidebarOpen((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [fetchCategories]);
+
   // Handlers with URL synchronization
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    setActiveLibrary(null); // Exit A-Z sidebar view and return to standard tab streaming rows
+    if (tab === 'movies') fetchCategories('movies');
+    if (tab === 'series') fetchCategories('series');
     if (typeof window !== 'undefined') {
       const url = tab === 'home' ? '/' : `/?tab=${tab}`;
       window.history.pushState(null, '', url);
@@ -236,29 +283,63 @@ export default function Home() {
   // Filter sections and items strictly corresponding to active tab
   const displayedSections = useMemo(() => {
     if (activeTab === 'movies') {
-      return sections
-        .map((sec) => {
-          const movieItems = sec.items.filter((i) => i.type === 'Movie');
-          return {
+      const res: MediaRowSection[] = [];
+
+      // 1. Continue Watching (Movies only)
+      const cw = sections.find((s) => s.id === 'continue-watching');
+      if (cw) {
+        const movieCw = cw.items.filter((i) => i.type === 'Movie');
+        if (movieCw.length > 0) {
+          res.push({ ...cw, items: movieCw });
+        }
+      }
+
+      // 2. Netflix Category Rows (Jellyfin available first, then Seerr options)
+      if (movieCategories.length > 0) {
+        res.push(...movieCategories);
+      } else {
+        const fallback = sections
+          .filter((s) => s.id !== 'continue-watching')
+          .map((sec) => ({
             ...sec,
             title: sec.id === 'trending-seerr' ? 'Trending Movies' : sec.title,
-            items: movieItems,
-          };
-        })
-        .filter((sec) => sec.items.length > 0);
+            items: sec.items.filter((i) => i.type === 'Movie'),
+          }))
+          .filter((sec) => sec.items.length > 0);
+        res.push(...fallback);
+      }
+
+      return res;
     }
 
     if (activeTab === 'series') {
-      return sections
-        .map((sec) => {
-          const seriesItems = sec.items.filter((i) => i.type === 'Series' || i.type === 'Episode');
-          return {
+      const res: MediaRowSection[] = [];
+
+      // 1. Continue Watching (Series and Episodes only)
+      const cw = sections.find((s) => s.id === 'continue-watching');
+      if (cw) {
+        const seriesCw = cw.items.filter((i) => i.type === 'Series' || i.type === 'Episode');
+        if (seriesCw.length > 0) {
+          res.push({ ...cw, items: seriesCw });
+        }
+      }
+
+      // 2. Netflix Category Rows (Jellyfin available first, then Seerr options)
+      if (tvCategories.length > 0) {
+        res.push(...tvCategories);
+      } else {
+        const fallback = sections
+          .filter((s) => s.id !== 'continue-watching')
+          .map((sec) => ({
             ...sec,
             title: sec.id === 'trending-seerr' ? 'Trending TV Shows' : sec.title,
-            items: seriesItems,
-          };
-        })
-        .filter((sec) => sec.items.length > 0);
+            items: sec.items.filter((i) => i.type === 'Series' || i.type === 'Episode'),
+          }))
+          .filter((sec) => sec.items.length > 0);
+        res.push(...fallback);
+      }
+
+      return res;
     }
 
     if (activeTab === 'requests') {
@@ -312,7 +393,7 @@ export default function Home() {
 
     // Default 'home' tab: all sections
     return sections;
-  }, [sections, requestSections, activeTab]);
+  }, [sections, requestSections, activeTab, movieCategories, tvCategories]);
 
   // Dynamic 5 rotating Hero Items for the active tab (random load + cycle)
   const displayedHeroItems = useMemo(() => {
@@ -356,6 +437,19 @@ export default function Home() {
         onOpenServerSetup={() => setIsServerSetupOpen(true)}
         isExternal={!authStatus.isLocalOrTailscale}
         onLogout={handleLogout}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+      />
+
+      {/* Hideable Jellyfin Library Sidebar */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        activeLibrary={activeLibrary}
+        onSelectLibrary={(lib) => {
+          setActiveLibrary(lib);
+          setIsSidebarOpen(false);
+        }}
+        appName={serverConfig.appName}
       />
 
       {/* Main Content Area */}
@@ -366,6 +460,15 @@ export default function Home() {
           onClose={() => setSearchQuery('')}
           onPlay={handlePlay}
           onOpenModal={handleOpenModal}
+          onRequest={handleRequest}
+        />
+      ) : activeLibrary ? (
+        /* Dedicated A-Z Jellyfin Library Page (Movies / TV Shows / YouTube) */
+        <LibraryCatalog
+          libraryType={activeLibrary}
+          onPlay={handlePlay}
+          onOpenModal={handleOpenModal}
+          onBackToHome={() => setActiveLibrary(null)}
           onRequest={handleRequest}
         />
       ) : loading ? (
