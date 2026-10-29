@@ -32,6 +32,10 @@ export default function Home() {
   const [modalItem, setModalItem] = useState<MediaItem | null>(null);
   const [playingState, setPlayingState] = useState<{ item: MediaItem; episode?: Episode } | null>(null);
   const [requestItem, setRequestItem] = useState<MediaItem | null>(null);
+  const [requestTarget, setRequestTarget] = useState<{
+    seasons?: number[];
+    episode?: Episode;
+  } | undefined>(undefined);
 
   // Server credentials for player
   const [serverConfig, setServerConfig] = useState<{ appName?: string; jellyfinUrl: string; hasJellyfinKey: boolean }>({
@@ -212,8 +216,9 @@ export default function Home() {
     }
   };
 
-  const handleRequest = (item: MediaItem) => {
+  const handleRequest = (item: MediaItem, seasons?: number[], episode?: Episode) => {
     setRequestItem(item);
+    setRequestTarget(seasons || episode ? { seasons, episode } : undefined);
   };
 
   const handleRequestSuccess = (requestedItem: MediaItem) => {
@@ -420,7 +425,7 @@ export default function Home() {
               <span className="hover:text-neutral-400 cursor-pointer">Seerr Request Gateway</span>
             </div>
             <p className="text-[11px]">
-              &copy; {new Date().getFullYear()} HomeFlix. Built for Jellyfin &amp; Overseerr/Jellyseerr on Proxmox LXC.
+              &copy; {new Date().getFullYear()} {process.env.NEXT_PUBLIC_APP_NAME || 'HomeStream'}. Built for Jellyfin &amp; Overseerr/Jellyseerr on Proxmox LXC.
             </p>
           </footer>
         </div>
@@ -462,7 +467,11 @@ export default function Home() {
       {requestItem && (
         <RequestDialog
           item={requestItem}
-          onClose={() => setRequestItem(null)}
+          target={requestTarget}
+          onClose={() => {
+            setRequestItem(null);
+            setRequestTarget(undefined);
+          }}
           onSuccess={handleRequestSuccess}
         />
       )}

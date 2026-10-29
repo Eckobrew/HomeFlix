@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
+import { SeerrClient } from '@/lib/seerr';
 import { resolveJellyfinUserId } from '@/lib/profiles';
 import {
   MOCK_HERO_ITEM,
@@ -25,7 +26,9 @@ export async function GET(
 
   const targetUserId = await resolveJellyfinUserId(profileId);
   const jellyfin = new JellyfinClient(undefined, undefined, targetUserId);
+  const seerr = new SeerrClient();
 
+  // 1. If it's a Jellyfin ID, fetch full details & episodes from Jellyfin
   if (jellyfin.isConfigured() && !id.startsWith('seerr-') && !id.startsWith('hero-') && !id.startsWith('cw-') && !id.startsWith('mov-') && !id.startsWith('ser-')) {
     const item = await jellyfin.getItemDetails(id);
     if (item) {
@@ -36,7 +39,42 @@ export async function GET(
     }
   }
 
-  // Find in mock data
+  // 2. If it's a Seerr item or TMDB ID, fetch full TV details & episodes from Seerr
+  if (seerr.isConfigured() && (id.startsWith('seerr-') || /^\d+$/.test(id))) {
+    const tmdbId = Number(id.replace('seerr-', ''));
+    if (tmdbId > 0) {
+      try {
+        // Try TV show first (to load seasons & episodes)
+        const tvItem = await seerr.getTvDetails(tmdbId);
+        if (tvItem && tvItem.seasons && tvItem.seasons.length > 0) {
+          return NextResponse.json(
+            { item: tvItem },
+            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+          );
+        }
+
+        // Try Movie
+        const movieItem = await seerr.getMovieDetails(tmdbId);
+        if (movieItem) {
+          return NextResponse.json(
+            { item: movieItem },
+            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+          );
+        }
+
+        if (tvItem) {
+          return NextResponse.json(
+            { item: tvItem },
+            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+          );
+        }
+      } catch (e) {
+        console.error(`Error querying Seerr for media ${id}:`, e);
+      }
+    }
+  }
+
+  // 3. Find in mock data
   const allMock: MediaItem[] = [
     MOCK_HERO_ITEM,
     ...MOCK_CONTINUE_WATCHING,

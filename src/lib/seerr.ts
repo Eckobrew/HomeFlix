@@ -1,4 +1,4 @@
-import { MediaItem, AvailabilityStatus, RequestMediaPayload } from '@/types';
+import { MediaItem, AvailabilityStatus, RequestMediaPayload, Season, Episode } from '@/types';
 import { getServerConfig } from './config';
 
 export interface SeerrResult {
@@ -346,6 +346,120 @@ export class SeerrClient {
     } catch (e) {
       console.error(`Error fetching quality profiles for ${mediaType}:`, e);
       return [];
+    }
+  }
+
+  async getTvDetails(tmdbId: number): Promise<MediaItem | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const res = await fetch(`${this.url}/api/v1/tv/${tmdbId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return null;
+      const tvData = await res.json();
+      const mapped = this.mapResult({ ...tvData, mediaType: 'tv' });
+
+      // Cast
+      if (tvData.credits?.cast && Array.isArray(tvData.credits.cast)) {
+        mapped.cast = tvData.credits.cast.slice(0, 10).map((c: any) => ({
+          name: c.name,
+          role: c.character,
+          profileUrl: c.profilePath ? `https://image.tmdb.org/t/p/w185${c.profilePath}` : undefined,
+        }));
+      }
+
+      // Genres
+      if (tvData.genres && Array.isArray(tvData.genres)) {
+        mapped.genres = tvData.genres.map((g: any) => g.name);
+      }
+
+      // Director / Creator
+      if (tvData.createdBy && Array.isArray(tvData.createdBy) && tvData.createdBy.length > 0) {
+        mapped.director = tvData.createdBy.map((cr: any) => cr.name).join(', ');
+      }
+
+      const regularSeasons = (tvData.seasons || []).filter((s: any) => s.seasonNumber > 0);
+      const seasonsWithEpisodes: Season[] = await Promise.all(
+        regularSeasons.map(async (s: any) => {
+          let episodes: Episode[] = [];
+          try {
+            const sRes = await fetch(`${this.url}/api/v1/tv/${tmdbId}/season/${s.seasonNumber}`, {
+              headers: this.getHeaders(),
+              next: { revalidate: 300 },
+            });
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              episodes = (sData.episodes || []).map((ep: any) => {
+                const still = ep.stillPath
+                  ? (ep.stillPath.startsWith('http') ? ep.stillPath : `https://image.tmdb.org/t/p/w500${ep.stillPath}`)
+                  : mapped.backdropUrl;
+                return {
+                  id: `seerr-ep-${tmdbId}-${s.seasonNumber}-${ep.episodeNumber}`,
+                  name: ep.name || `Episode ${ep.episodeNumber}`,
+                  episodeNumber: ep.episodeNumber,
+                  seasonNumber: s.seasonNumber,
+                  overview: ep.overview || 'No description available.',
+                  thumbnailUrl: still,
+                  durationMinutes: ep.runtime || tvData.episodeRunTime?.[0] || 45,
+                };
+              });
+            }
+          } catch (e) {
+            console.error(`Failed to fetch episodes for season ${s.seasonNumber}:`, e);
+          }
+
+          return {
+            id: `seerr-season-${tmdbId}-${s.seasonNumber}`,
+            seasonNumber: s.seasonNumber,
+            name: s.name || `Season ${s.seasonNumber}`,
+            episodeCount: s.episodeCount || episodes.length,
+            overview: s.overview,
+            episodes,
+          };
+        })
+      );
+
+      mapped.seasons = seasonsWithEpisodes;
+      mapped.seasonsCount = seasonsWithEpisodes.length;
+      return mapped;
+    } catch (err) {
+      console.error(`Failed to fetch TV details from Seerr for ID ${tmdbId}:`, err);
+      return null;
+    }
+  }
+
+  async getMovieDetails(tmdbId: number): Promise<MediaItem | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const res = await fetch(`${this.url}/api/v1/movie/${tmdbId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return null;
+      const movieData = await res.json();
+      const mapped = this.mapResult({ ...movieData, mediaType: 'movie' });
+
+      if (movieData.credits?.cast && Array.isArray(movieData.credits.cast)) {
+        mapped.cast = movieData.credits.cast.slice(0, 10).map((c: any) => ({
+          name: c.name,
+          role: c.character,
+          profileUrl: c.profilePath ? `https://image.tmdb.org/t/p/w185${c.profilePath}` : undefined,
+        }));
+      }
+
+      if (movieData.genres && Array.isArray(movieData.genres)) {
+        mapped.genres = movieData.genres.map((g: any) => g.name);
+      }
+
+      if (movieData.runtime) {
+        mapped.durationMinutes = movieData.runtime;
+      }
+
+      return mapped;
+    } catch (err) {
+      console.error(`Failed to fetch movie details from Seerr for ID ${tmdbId}:`, err);
+      return null;
     }
   }
 

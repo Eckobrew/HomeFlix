@@ -85,8 +85,8 @@ export const MediaRow: React.FC<MediaRowProps> = ({
               />
             </div>
           ))}
-          {/* End spacer so the last card has clearance for its hover expansion */}
-          <div className="w-8 md:w-16 shrink-0 pointer-events-none" />
+          {/* End spacer so the last card has ample clearance for hover card expansion */}
+          <div className="w-20 md:w-32 shrink-0 pointer-events-none" />
         </div>
 
         {/* Right Arrow Button */}

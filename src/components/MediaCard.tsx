@@ -30,6 +30,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const [alignment, setAlignment] = useState<'left' | 'center' | 'right'>(
     isFirst ? 'left' : isLast ? 'right' : 'center'
   );
+  const [horizontalOffset, setHorizontalOffset] = useState<number | null>(null);
 
   const cardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -42,27 +43,58 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
   // Smooth hover intent delay & preview trigger
   const handleMouseEnter = () => {
-    // Dynamically calculate whether the card is at the edge of the visible scroll track
+    // Dynamically calculate bounded positioning so hover card NEVER gets clipped by parent container edges
     if (cardRef.current) {
       const cardRect = cardRef.current.getBoundingClientRect();
       const parentScroll = cardRef.current.closest('.overflow-x-auto') as HTMLElement | null;
-      const viewportRight = parentScroll ? parentScroll.getBoundingClientRect().right : window.innerWidth;
-      const viewportLeft = parentScroll ? parentScroll.getBoundingClientRect().left : 0;
-      const spaceRight = viewportRight - cardRect.right;
-      const spaceLeft = cardRect.left - viewportLeft;
+      const containerRect = parentScroll
+        ? parentScroll.getBoundingClientRect()
+        : { left: 0, right: window.innerWidth };
 
+      // Desktop width is 320px (w-80), tablet is 288px (w-72)
+      const isMd = typeof window !== 'undefined' && window.innerWidth >= 768;
+      const hoverWidth = isMd ? 320 : 288;
+      const cardWidth = cardRect.width;
+
+      // Ideal centered position in viewport coordinates
+      const idealLeftInViewport = cardRect.left + (cardWidth - hoverWidth) / 2;
+      const idealRightInViewport = idealLeftInViewport + hoverWidth;
+
+      // Safe bounds inside container (with 16px breathing room from edges)
+      const minLeft = containerRect.left + 16;
+      const maxRight = containerRect.right - 16;
+
+      let targetLeftInViewport = idealLeftInViewport;
+
+      if (idealRightInViewport > maxRight) {
+        targetLeftInViewport -= (idealRightInViewport - maxRight);
+      }
+      if (targetLeftInViewport < minLeft) {
+        targetLeftInViewport = minLeft;
+      }
+
+      // Store relative pixel offset from card's left edge
+      const offset = Math.round(targetLeftInViewport - cardRect.left);
+      setHorizontalOffset(offset);
+
+      // Fallback alignment flag
+      const spaceRight = containerRect.right - cardRect.right;
+      const spaceLeft = cardRect.left - containerRect.left;
       if (spaceRight < 140) {
         setAlignment('right');
-        if (parentScroll && spaceRight < 50) {
-          parentScroll.scrollBy({ left: 70 - spaceRight, behavior: 'smooth' });
-        }
       } else if (spaceLeft < 100) {
         setAlignment('left');
-        if (parentScroll && spaceLeft < 50) {
-          parentScroll.scrollBy({ left: spaceLeft - 70, behavior: 'smooth' });
-        }
       } else {
         setAlignment('center');
+      }
+
+      // Smoothly bring partially hidden cards into full view
+      if (parentScroll) {
+        if (spaceRight < 40) {
+          parentScroll.scrollBy({ left: 60 - spaceRight, behavior: 'smooth' });
+        } else if (spaceLeft < 40) {
+          parentScroll.scrollBy({ left: spaceLeft - 60, behavior: 'smooth' });
+        }
       }
     }
 
@@ -241,13 +273,18 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       {/* Floating Hover Card with Random Section Video Preview */}
       {isHovered && !rankNumber && (
         <div
-          className={`hidden md:block absolute -top-24 md:-top-28 z-50 w-72 md:w-80 bg-[#181818] rounded-md shadow-[0_22px_50px_rgba(0,0,0,0.98)] overflow-hidden border border-neutral-700/80 animate-fade-in pointer-events-auto ${
-            alignment === 'left'
-              ? 'left-0 origin-left'
+          className="hidden md:block absolute -top-24 md:-top-28 z-50 w-72 md:w-80 bg-[#181818] rounded-md shadow-[0_22px_50px_rgba(0,0,0,0.98)] overflow-hidden border border-neutral-700/80 animate-fade-in pointer-events-auto"
+          style={{
+            left: horizontalOffset !== null
+              ? `${horizontalOffset}px`
+              : alignment === 'left'
+              ? '0px'
               : alignment === 'right'
-              ? 'right-0 origin-right'
-              : 'left-1/2 -translate-x-1/2 origin-center'
-          }`}
+              ? undefined
+              : '50%',
+            right: horizontalOffset === null && alignment === 'right' ? '0px' : undefined,
+            transform: horizontalOffset === null && alignment === 'center' ? 'translateX(-50%)' : undefined,
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Card Media Header with Live Video Preview */}

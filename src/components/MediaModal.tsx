@@ -19,7 +19,7 @@ interface MediaModalProps {
   item: MediaItem | null;
   onClose: () => void;
   onPlay: (item: MediaItem, episode?: Episode) => void;
-  onRequest: (item: MediaItem, seasons?: number[]) => void;
+  onRequest: (item: MediaItem, seasons?: number[], episode?: Episode) => void;
 }
 
 export const MediaModal: React.FC<MediaModalProps> = ({
@@ -31,6 +31,8 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   const [selectedSeasonIndex, setSelectedSeasonIndex] = useState(0);
   const [isFavorite, setIsFavorite] = useState(false);
   const [details, setDetails] = useState<MediaItem | null>(item);
+  const [requestingEpId, setRequestingEpId] = useState<string | null>(null);
+  const [requestedEpIds, setRequestedEpIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setDetails(item);
@@ -72,6 +74,39 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   const inProgressEpisodesCount = allEpisodes.filter(
     (e) => !e.played && typeof e.progressPercent === 'number' && e.progressPercent > 0
   ).length;
+
+  const handleRequestEpisode = async (ep: Episode) => {
+    const sNum = currentSeason?.seasonNumber || 1;
+    const epKey = `${sNum}-${ep.episodeNumber}`;
+    setRequestingEpId(epKey);
+    try {
+      const tmdbId = currentItem.tmdbId || (currentItem.seerrId ? Number(currentItem.seerrId) : undefined);
+      if (!tmdbId) {
+        onRequest(currentItem, [sNum], ep);
+        return;
+      }
+
+      const res = await fetch('/api/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaType: 'tv',
+          mediaId: tmdbId,
+          seasons: [sNum],
+        }),
+      });
+
+      if (res.ok) {
+        setRequestedEpIds((prev) => new Set(prev).add(epKey));
+      } else {
+        onRequest(currentItem, [sNum], ep);
+      }
+    } catch {
+      onRequest(currentItem, [sNum], ep);
+    } finally {
+      setRequestingEpId(null);
+    }
+  };
 
   const handleRestart = () => {
     if (currentItem.type === 'Series') {
@@ -365,113 +400,192 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                   )}
                 </div>
 
-                {/* Season Dropdown */}
-                {seasons.length > 1 && (
-                  <select
-                    value={selectedSeasonIndex}
-                    onChange={(e) => setSelectedSeasonIndex(Number(e.target.value))}
-                    className="bg-[#242424] border border-neutral-700 text-white text-sm font-semibold rounded px-3 py-1.5 outline-none cursor-pointer hover:bg-neutral-800"
-                  >
-                    {seasons.map((s, idx) => (
-                      <option key={s.id || idx} value={idx}>
-                        {s.name || `Season ${s.seasonNumber}`}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <div className="flex items-center space-x-2">
+                  {/* Download Season Button for Requestable Shows */}
+                  {!isAvailable && currentSeason && (
+                    <button
+                      onClick={() => onRequest(currentItem, [currentSeason.seasonNumber])}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors shadow-sm"
+                      title={`Request Season ${currentSeason.seasonNumber}`}
+                    >
+                      <Download size={13} className="text-red-500" />
+                      <span>Download Season {currentSeason.seasonNumber}</span>
+                    </button>
+                  )}
+
+                  {/* Season Dropdown */}
+                  {seasons.length > 1 && (
+                    <select
+                      value={selectedSeasonIndex}
+                      onChange={(e) => setSelectedSeasonIndex(Number(e.target.value))}
+                      className="bg-[#242424] border border-neutral-700 text-white text-sm font-semibold rounded px-3 py-1.5 outline-none cursor-pointer hover:bg-neutral-800"
+                    >
+                      {seasons.map((s, idx) => (
+                        <option key={s.id || idx} value={idx}>
+                          {s.name || `Season ${s.seasonNumber}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
               </div>
 
               {/* Episode List */}
               <div className="space-y-3">
                 {currentSeason?.episodes && currentSeason.episodes.length > 0 ? (
-                  currentSeason.episodes.map((ep) => (
-                    <div
-                      key={ep.id}
-                      onClick={() => onPlay(currentItem, ep)}
-                      className="flex items-center justify-between p-3 rounded-lg bg-neutral-900/60 hover:bg-neutral-800/80 cursor-pointer transition-colors border border-neutral-800/80 group"
-                    >
-                      <div className="flex items-center space-x-4 min-w-0">
-                        <span className="text-base font-bold text-neutral-400 group-hover:text-white w-6 text-center shrink-0">
-                          {ep.episodeNumber}
-                        </span>
+                  currentSeason.episodes.map((ep) => {
+                    const epKey = `${currentSeason?.seasonNumber || 1}-${ep.episodeNumber}`;
+                    const isEpRequested = requestedEpIds.has(epKey) || isRequested;
+                    const isEpRequesting = requestingEpId === epKey;
+                    const canPlayEp = isAvailable && Boolean(ep.videoStreamUrl || ep.jellyfinId);
 
-                        {/* Thumbnail */}
-                        <div className="relative w-28 sm:w-36 aspect-video bg-neutral-800 rounded overflow-hidden shrink-0">
-                          <img
-                            src={ep.thumbnailUrl || currentItem.backdropUrl}
-                            alt={ep.name}
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 flex items-center justify-center transition-colors">
-                            <Play size={20} className="text-white fill-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
-                          </div>
+                    return (
+                      <div
+                        key={ep.id}
+                        onClick={() => {
+                          if (canPlayEp) {
+                            onPlay(currentItem, ep);
+                          } else {
+                            handleRequestEpisode(ep);
+                          }
+                        }}
+                        className="flex items-center justify-between p-3 rounded-lg bg-neutral-900/60 hover:bg-neutral-800/80 cursor-pointer transition-colors border border-neutral-800/80 group"
+                      >
+                        <div className="flex items-center space-x-4 min-w-0">
+                          <span className="text-base font-bold text-neutral-400 group-hover:text-white w-6 text-center shrink-0">
+                            {ep.episodeNumber}
+                          </span>
 
-                          {/* Watched Badge on Thumbnail */}
-                          {ep.played && (
-                            <div className="absolute top-1.5 right-1.5 z-10 bg-emerald-600/95 text-white rounded-full p-0.5 shadow-md border border-emerald-400/40">
-                              <Check size={11} strokeWidth={3} />
+                          {/* Thumbnail */}
+                          <div className="relative w-28 sm:w-36 aspect-video bg-neutral-800 rounded overflow-hidden shrink-0">
+                            <img
+                              src={ep.thumbnailUrl || currentItem.backdropUrl}
+                              alt={ep.name}
+                              className="w-full h-full object-cover"
+                            />
+                            <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 flex items-center justify-center transition-colors">
+                              {canPlayEp ? (
+                                <Play size={20} className="text-white fill-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
+                              ) : isEpRequested ? (
+                                <Check size={20} className="text-amber-400 font-bold" />
+                              ) : (
+                                <Download size={20} className="text-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
+                              )}
                             </div>
-                          )}
 
-                          {/* Progress bar across bottom of thumbnail for half-watched or watched */}
-                          {ep.played ? (
-                            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-emerald-500/90" />
-                          ) : typeof ep.progressPercent === 'number' && ep.progressPercent > 0 ? (
-                            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-neutral-900/90 overflow-hidden">
-                              <div
-                                className="h-full bg-red-600 transition-all duration-300 shadow"
-                                style={{ width: `${ep.progressPercent}%` }}
-                              />
-                            </div>
-                          ) : null}
-                        </div>
+                            {/* Watched Badge on Thumbnail */}
+                            {ep.played && (
+                              <div className="absolute top-1.5 right-1.5 z-10 bg-emerald-600/95 text-white rounded-full p-0.5 shadow-md border border-emerald-400/40">
+                                <Check size={11} strokeWidth={3} />
+                              </div>
+                            )}
 
-                        {/* Episode details */}
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="text-sm font-bold text-white group-hover:text-red-500 transition-colors truncate">
-                              {ep.name}
-                            </h4>
+                            {/* Progress bar across bottom of thumbnail for half-watched or watched */}
                             {ep.played ? (
-                              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-1.5 py-0.5 rounded">
-                                Watched
-                              </span>
-                            ) : null}
-                            {!ep.played && typeof ep.progressPercent === 'number' && ep.progressPercent > 0 ? (
-                              <span className="text-[10px] font-semibold text-red-400 bg-red-950/70 border border-red-800/80 px-1.5 py-0.5 rounded">
-                                {ep.progressPercent}% watched
-                              </span>
+                              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-emerald-500/90" />
+                            ) : typeof ep.progressPercent === 'number' && ep.progressPercent > 0 ? (
+                              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-neutral-900/90 overflow-hidden">
+                                <div
+                                  className="h-full bg-red-600 transition-all duration-300 shadow"
+                                  style={{ width: `${ep.progressPercent}%` }}
+                                />
+                              </div>
                             ) : null}
                           </div>
-                          <p className="text-xs text-neutral-400 line-clamp-2 max-w-lg">
-                            {ep.overview}
-                          </p>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center space-x-2 shrink-0 pl-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const restartEp: Episode = { ...ep, playbackPositionTicks: 0 };
-                            fetch('/api/playback/progress', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ itemId: ep.jellyfinId || ep.id, positionTicks: 0, isPaused: false }),
-                            }).catch(() => {});
-                            onPlay({ ...currentItem, playbackPositionTicks: 0 }, restartEp);
-                          }}
-                          className="p-1.5 rounded-full hover:bg-white/20 text-neutral-400 hover:text-white transition-colors"
-                          title={`Restart Episode ${ep.episodeNumber} from 0:00`}
-                        >
-                          <RotateCcw size={15} />
-                        </button>
-                        <div className="text-xs text-neutral-400 font-mono">
-                          {ep.durationMinutes}m
+                          {/* Episode details */}
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="text-sm font-bold text-white group-hover:text-red-500 transition-colors truncate">
+                                {ep.name}
+                              </h4>
+                              {ep.played ? (
+                                <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-1.5 py-0.5 rounded">
+                                  Watched
+                                </span>
+                              ) : null}
+                              {!ep.played && typeof ep.progressPercent === 'number' && ep.progressPercent > 0 ? (
+                                <span className="text-[10px] font-semibold text-red-400 bg-red-950/70 border border-red-800/80 px-1.5 py-0.5 rounded">
+                                  {ep.progressPercent}% watched
+                                </span>
+                              ) : null}
+                              {!canPlayEp && (
+                                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                  isEpRequested
+                                    ? 'bg-amber-950/70 text-amber-400 border border-amber-800/80'
+                                    : 'bg-neutral-800 text-neutral-300 border border-neutral-700'
+                                }`}>
+                                  {isEpRequested ? 'Requested' : 'Available for Download'}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-neutral-400 line-clamp-2 max-w-lg">
+                              {ep.overview}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0 pl-2">
+                          {canPlayEp ? (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const restartEp: Episode = { ...ep, playbackPositionTicks: 0 };
+                                  fetch('/api/playback/progress', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ itemId: ep.jellyfinId || ep.id, positionTicks: 0, isPaused: false }),
+                                  }).catch(() => {});
+                                  onPlay({ ...currentItem, playbackPositionTicks: 0 }, restartEp);
+                                }}
+                                className="p-1.5 rounded-full hover:bg-white/20 text-neutral-400 hover:text-white transition-colors"
+                                title={`Restart Episode ${ep.episodeNumber} from 0:00`}
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                              <div className="text-xs text-neutral-400 font-mono">
+                                {ep.durationMinutes}m
+                              </div>
+                            </>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRequestEpisode(ep);
+                              }}
+                              disabled={isEpRequested || isEpRequesting}
+                              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow ${
+                                isEpRequested
+                                  ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50 cursor-default'
+                                  : isEpRequesting
+                                  ? 'bg-neutral-700 text-white cursor-wait'
+                                  : 'bg-red-600 hover:bg-red-500 text-white active:scale-95'
+                              }`}
+                              title={`Download Episode ${ep.episodeNumber}`}
+                            >
+                              {isEpRequesting ? (
+                                <>
+                                  <Clock size={13} className="animate-spin" />
+                                  <span>Requesting...</span>
+                                </>
+                              ) : isEpRequested ? (
+                                <>
+                                  <Check size={13} />
+                                  <span>Requested</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Download size={13} />
+                                  <span>Download</span>
+                                </>
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="text-sm text-neutral-400 italic py-4">
                     Loading seasons and episodes...

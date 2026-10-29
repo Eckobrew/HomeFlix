@@ -1,5 +1,34 @@
 import { NextRequest } from 'next/server';
 
+// Cached home WAN IP to detect router NAT hairpinning (when local devices use DoH/Secure DNS)
+let cachedHomeWanIp: string | null = '143.159.84.9';
+let lastWanCheck = 0;
+
+export async function refreshHomeWanIp(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedHomeWanIp && now - lastWanCheck < 300000) {
+    return cachedHomeWanIp;
+  }
+  try {
+    const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(2500) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.ip) {
+        cachedHomeWanIp = data.ip.trim();
+        lastWanCheck = now;
+        return cachedHomeWanIp;
+      }
+    }
+  } catch {
+    // Ignore fetch errors
+  }
+  return cachedHomeWanIp;
+}
+
+if (typeof process !== 'undefined') {
+  refreshHomeWanIp().catch(() => {});
+}
+
 /**
  * Extracts the real client IP from incoming request headers
  * Handles reverse proxies like Cloudflare, GoDoxy, Nginx, Traefik, and standard proxies.
@@ -60,6 +89,14 @@ export function isLocalOrTailscaleIp(ip: string): boolean {
     return true;
   }
 
+  // Home Router Public WAN IP / NAT Hairpinning
+  // When local Wi-Fi devices (e.g. Brave, Firefox with DoH/Secure DNS) resolve public DNS,
+  // packets hairpin through the home router, presenting the router's WAN IP to reverse proxies.
+  const homePublicIp = process.env.HOME_PUBLIC_IP || cachedHomeWanIp || '143.159.84.9';
+  if (cleanIp === homePublicIp || (cachedHomeWanIp && cleanIp === cachedHomeWanIp)) {
+    return true;
+  }
+
   // IPv4 Checks
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(cleanIp)) {
     const parts = cleanIp.split('.').map(Number);
@@ -114,13 +151,31 @@ export function isRequestLocalOrTailscale(req: Request | NextRequest): {
   const clientIp = getClientIp(req);
   const headers = req.headers;
 
-  // 1. Check IP address directly
+  // 1. Check IP address directly (Local, Tailscale, or Router NAT Hairpinning)
   if (isLocalOrTailscaleIp(clientIp)) {
+    const isHairpin = clientIp === (process.env.HOME_PUBLIC_IP || cachedHomeWanIp || '143.159.84.9');
     return {
       isLocalOrTailscale: true,
       clientIp,
-      reason: 'IP match (Local or Tailscale CGNAT)',
+      reason: isHairpin
+        ? 'Home Router NAT Hairpinning (Local Wi-Fi device using Secure DNS/DoH)'
+        : 'IP match (Local or Tailscale CGNAT)',
     };
+  }
+
+  // 1b. Check all IPs in X-Forwarded-For chain
+  const xForwardedFor = headers.get('x-forwarded-for');
+  if (xForwardedFor) {
+    const allIps = xForwardedFor.split(',').map((s) => s.trim());
+    for (const singleIp of allIps) {
+      if (isLocalOrTailscaleIp(singleIp)) {
+        return {
+          isLocalOrTailscale: true,
+          clientIp: singleIp,
+          reason: 'X-Forwarded-For local/Tailscale match',
+        };
+      }
+    }
   }
 
   // 2. Check Host / X-Forwarded-Host for Tailscale domains

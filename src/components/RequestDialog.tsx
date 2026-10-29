@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Download, CheckCircle, AlertCircle, Loader2, ChevronDown, Sliders } from 'lucide-react';
-import { MediaItem } from '@/types';
+import { MediaItem, Episode } from '@/types';
 
 interface QualityProfile {
   id: number;
@@ -12,12 +12,17 @@ interface QualityProfile {
 
 interface RequestDialogProps {
   item: MediaItem | null;
+  target?: {
+    seasons?: number[];
+    episode?: Episode;
+  };
   onClose: () => void;
   onSuccess: (item: MediaItem) => void;
 }
 
 export const RequestDialog: React.FC<RequestDialogProps> = ({
   item,
+  target,
   onClose,
   onSuccess,
 }) => {
@@ -67,8 +72,15 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
 
       let seasons: number[] | undefined;
       if (item.type === 'Series') {
-        if (seasonChoice === 'first') seasons = [1];
-        else if (seasonChoice === 'latest' && item.seasonsCount) seasons = [item.seasonsCount];
+        if (target?.seasons && target.seasons.length > 0) {
+          seasons = target.seasons;
+        } else if (target?.episode) {
+          seasons = [target.episode.seasonNumber || 1];
+        } else if (seasonChoice === 'first') {
+          seasons = [1];
+        } else if (seasonChoice === 'latest' && item.seasonsCount) {
+          seasons = [item.seasonsCount];
+        }
       }
 
       const selectedProfile = qualityProfiles.find((p) => p.id === selectedProfileId);
@@ -149,8 +161,26 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
           </div>
         </div>
 
+        {/* Target Episode or Season Badge */}
+        {target?.episode && (
+          <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-lg text-xs space-y-1">
+            <span className="font-bold text-red-400">Target Episode:</span>
+            <div className="text-white font-medium">
+              Season {target.episode.seasonNumber || 1}, Episode {target.episode.episodeNumber}: {target.episode.name}
+            </div>
+          </div>
+        )}
+        {!target?.episode && target?.seasons && target.seasons.length > 0 && (
+          <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-lg text-xs space-y-1">
+            <span className="font-bold text-red-400">Target Season:</span>
+            <div className="text-white font-medium">
+              Season {target.seasons.join(', ')}
+            </div>
+          </div>
+        )}
+
         {/* TV Show Season Selector */}
-        {item.type === 'Series' && (
+        {item.type === 'Series' && !target?.episode && (!target?.seasons || target.seasons.length === 0) && (
           <div className="space-y-2 pt-2 border-t border-neutral-800">
             <label className="text-xs font-semibold text-neutral-300">
               Select Seasons to Request:
