@@ -11,6 +11,7 @@ import {
 import { MediaItem, MediaRowSection } from '@/types';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET() {
   const jellyfin = new JellyfinClient();

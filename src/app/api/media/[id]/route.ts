@@ -10,6 +10,7 @@ import {
 import { MediaItem } from '@/types';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(
   request: NextRequest,
@@ -22,7 +23,10 @@ export async function GET(
   if (jellyfin.isConfigured() && !id.startsWith('seerr-') && !id.startsWith('hero-') && !id.startsWith('cw-') && !id.startsWith('mov-') && !id.startsWith('ser-')) {
     const item = await jellyfin.getItemDetails(id);
     if (item) {
-      return NextResponse.json({ item });
+      return NextResponse.json(
+        { item },
+        { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+      );
     }
   }
 
@@ -38,7 +42,10 @@ export async function GET(
   const found = allMock.find((m) => m.id === id);
 
   if (found) {
-    return NextResponse.json({ item: found });
+    return NextResponse.json(
+      { item: found },
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+    );
   }
 
   return NextResponse.json({ error: 'Media not found' }, { status: 404 });
