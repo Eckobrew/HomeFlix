@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
 import {
   ArrowLeft,
@@ -77,19 +77,27 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const isJellyfinItem = Boolean(item.source === 'jellyfin' || item.jellyfinId);
 
-  // If item is a series and no activeEpisode is resolved yet, fetch series seasons/episodes
+  // Series playlist episodes
+  const [seriesEpisodes, setSeriesEpisodes] = useState<Episode[]>(
+    item.seasons?.flatMap((s) => s.episodes || []) || []
+  );
+
+  // If item is a series, ensure series seasons/episodes are loaded for navigation & next episode
   useEffect(() => {
-    if (item.type === 'Series' && !activeEpisode) {
+    if (item.type === 'Series') {
       if (item.seasons && item.seasons.length > 0) {
         const allEps = item.seasons.flatMap((s) => s.episodes || []);
-        const found = activePlayableId
-          ? allEps.find((ep) => ep.jellyfinId === activePlayableId || ep.id === activePlayableId)
-          : allEps.find((ep) => ep.videoStreamUrl || ep.jellyfinId);
-        if (found) {
-          setActiveEpisode(found);
-          if (!activePlayableId) setActivePlayableId(found.jellyfinId || found.id);
-          return;
+        setSeriesEpisodes(allEps);
+        if (!activeEpisode) {
+          const found = activePlayableId
+            ? allEps.find((ep) => ep.jellyfinId === activePlayableId || ep.id === activePlayableId)
+            : allEps.find((ep) => ep.videoStreamUrl || ep.jellyfinId);
+          if (found) {
+            setActiveEpisode(found);
+            if (!activePlayableId) setActivePlayableId(found.jellyfinId || found.id);
+          }
         }
+        return;
       }
 
       setIsLoadingEpisode(true);
@@ -104,11 +112,14 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           }
           if (media.seasons) {
             const allEps = media.seasons.flatMap((s: any) => s.episodes || []);
-            const found = targetPlayableId
-              ? allEps.find((ep: any) => ep.jellyfinId === targetPlayableId || ep.id === targetPlayableId)
-              : allEps.find((ep: any) => ep.videoStreamUrl || ep.jellyfinId);
-            if (found) {
-              setActiveEpisode(found);
+            setSeriesEpisodes(allEps);
+            if (!activeEpisode) {
+              const found = targetPlayableId
+                ? allEps.find((ep: any) => ep.jellyfinId === targetPlayableId || ep.id === targetPlayableId)
+                : allEps.find((ep: any) => ep.videoStreamUrl || ep.jellyfinId);
+              if (found) {
+                setActiveEpisode(found);
+              }
             }
           }
         })
@@ -116,6 +127,20 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         .finally(() => setIsLoadingEpisode(false));
     }
   }, [item, activeEpisode, activePlayableId]);
+
+  // Compute next episode in TV series
+  const nextEpisode = useMemo(() => {
+    if (!seriesEpisodes || seriesEpisodes.length === 0) return null;
+    const currentId = activeEpisode?.jellyfinId || activeEpisode?.id || activePlayableId;
+    const currentIdx = seriesEpisodes.findIndex(
+      (ep) => (currentId && (ep.jellyfinId === currentId || ep.id === currentId)) ||
+              (activeEpisode && ep.seasonNumber === activeEpisode.seasonNumber && ep.episodeNumber === activeEpisode.episodeNumber)
+    );
+    if (currentIdx !== -1 && currentIdx + 1 < seriesEpisodes.length) {
+      return seriesEpisodes[currentIdx + 1];
+    }
+    return null;
+  }, [seriesEpisodes, activeEpisode, activePlayableId]);
 
   // Fetch available subtitles for active playable ID
   useEffect(() => {
@@ -528,14 +553,14 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   };
 
   // Report playback progress back to Jellyfin for Resume / Continue Watching tracking
-  const reportProgress = useCallback((isStopped = false) => {
+  const reportProgress = useCallback((isStopped = false, overrideTicks?: number) => {
     const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
     if (!targetId || !videoRef.current) return;
 
     const currentSecs = videoRef.current.currentTime;
-    if (currentSecs <= 0) return;
+    const positionTicks = typeof overrideTicks === 'number' ? overrideTicks : Math.round(currentSecs * 10000000);
+    if (positionTicks < 0) return;
 
-    const positionTicks = Math.round(currentSecs * 10000000);
     const payload = JSON.stringify({
       itemId: targetId,
       positionTicks,
@@ -553,6 +578,34 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       }).catch(() => {});
     }
   }, [activePlayableId, item, isPlaying]);
+
+  const handleRestart = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      videoRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+    }
+    setCurrentTime(0);
+    reportProgress(false, 0);
+    resetControlsTimer();
+  };
+
+  const handleNextEpisode = () => {
+    if (onNextEpisode) {
+      onNextEpisode();
+      return;
+    }
+    if (nextEpisode) {
+      reportProgress(true);
+      setActiveEpisode(nextEpisode);
+      setActivePlayableId(nextEpisode.jellyfinId || nextEpisode.id);
+      setCurrentTime(0);
+      setDuration(nextEpisode.totalDurationTicks ? nextEpisode.totalDurationTicks / 10000000 : 0);
+      setPlaybackDuration(0);
+      setStreamUrl('');
+      setIsLoadingStream(true);
+      resetControlsTimer();
+    }
+  };
 
   // Periodic progress reporting every 10 seconds while playing
   useEffect(() => {
@@ -582,6 +635,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       }
       if (e.key === 'ArrowLeft') seek(-10);
       if (e.key === 'ArrowRight') seek(10);
+      if (e.key === '0' || e.key === 'Home') handleRestart();
+      if ((e.key === 'n' || e.key === 'N') && (nextEpisode || onNextEpisode)) {
+        handleNextEpisode();
+      }
       if (e.key === 'f') toggleFullscreen();
       if (e.key === 'm') toggleMute();
       if (e.key === 'c' || e.key === 'C') {
@@ -591,7 +648,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, duration, currentTime]);
+  }, [isPlaying, duration, currentTime, nextEpisode, onNextEpisode]);
 
   const formatTime = (secs: number) => {
     const hours = Math.floor(secs / 3600);
@@ -902,14 +959,30 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
                 )}
               </div>
 
-              {onNextEpisode && (
+              {/* Restart Episode / Movie Button */}
+              <button
+                onClick={handleRestart}
+                className="flex items-center space-x-1 sm:space-x-1.5 hover:text-white text-neutral-300 transition-colors text-xs sm:text-sm font-semibold p-1"
+                title={`Restart ${activeEpisode ? 'Episode' : 'Movie'} from beginning (0 / Home)`}
+              >
+                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
+                <span className="hidden sm:inline">Restart</span>
+              </button>
+
+              {/* Skip Forward / Next Episode on TV shows */}
+              {(item.type === 'Series' || onNextEpisode || nextEpisode) && (
                 <button
-                  onClick={onNextEpisode}
-                  className="flex items-center space-x-1 hover:text-neutral-300 transition-colors text-xs sm:text-sm font-semibold p-1"
-                  title="Next Episode"
+                  onClick={handleNextEpisode}
+                  disabled={!nextEpisode && !onNextEpisode}
+                  className={`flex items-center space-x-1 sm:space-x-1.5 transition-colors text-xs sm:text-sm font-semibold p-1 ${
+                    nextEpisode || onNextEpisode
+                      ? 'hover:text-white text-neutral-300 cursor-pointer'
+                      : 'text-neutral-600 cursor-not-allowed opacity-50'
+                  }`}
+                  title={nextEpisode ? `Next Episode: ${nextEpisode.name || `S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}`}` : 'Next Episode (N)'}
                 >
                   <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="hidden md:inline">Next Episode</span>
+                  <span className="hidden sm:inline">Next Episode</span>
                 </button>
               )}
 

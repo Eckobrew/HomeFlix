@@ -270,6 +270,18 @@ export default function Home() {
           item={playingState.item}
           episode={playingState.episode}
           onClose={() => setPlayingState(null)}
+          onNextEpisode={() => {
+            if (playingState.item.type === 'Series') {
+              const allEps = playingState.item.seasons?.flatMap((s) => s.episodes || []) || [];
+              const currentId = playingState.episode?.jellyfinId || playingState.episode?.id;
+              const currentIdx = allEps.findIndex(
+                (ep) => currentId && (ep.jellyfinId === currentId || ep.id === currentId)
+              );
+              if (currentIdx !== -1 && currentIdx + 1 < allEps.length) {
+                setPlayingState({ item: playingState.item, episode: allEps[currentIdx + 1] });
+              }
+            }
+          }}
           jellyfinServerUrl={serverConfig.jellyfinUrl}
         />
       )}

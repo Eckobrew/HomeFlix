@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Play, Info, Volume2, VolumeX, Plus, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Play, RotateCcw, Info, Volume2, VolumeX, Plus, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MediaItem } from '@/types';
 
 interface HeroBannerProps {
@@ -33,6 +33,10 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   }, [items.length]);
 
   const currentItem = items[currentIndex] || items[0];
+  const hasResume = Boolean(
+    (currentItem?.playbackPositionTicks && currentItem.playbackPositionTicks > 0) ||
+    (currentItem?.progressPercent && currentItem.progressPercent > 0)
+  );
 
   // Auto-cycle through items every 9 seconds
   useEffect(() => {
@@ -217,14 +221,37 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-2.5 sm:space-x-3 pt-2 pointer-events-auto">
-          {/* Play Button */}
+          {/* Play / Resume Button */}
           <button
             onClick={() => onPlay(currentItem)}
             className="flex items-center space-x-1.5 sm:space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-4 py-2 sm:px-6 sm:py-2.5 rounded transition-transform active:scale-95 shadow-md text-sm sm:text-base"
           >
             <Play size={18} className="fill-black sm:w-5 sm:h-5" />
-            <span>Play</span>
+            <span>{hasResume ? 'Resume' : 'Play'}</span>
           </button>
+
+          {/* Restart Button when item has saved progress */}
+          {hasResume && (
+            <button
+              onClick={() => {
+                const restartItem = { ...currentItem, playbackPositionTicks: 0, progressPercent: 0 };
+                const targetId = restartItem.playableEpisodeId || (restartItem.type !== 'Series' ? restartItem.jellyfinId || restartItem.id : undefined);
+                if (targetId) {
+                  fetch('/api/playback/progress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ itemId: targetId, positionTicks: 0, isPaused: false }),
+                  }).catch(() => {});
+                }
+                onPlay(restartItem);
+              }}
+              className="flex items-center space-x-1.5 sm:space-x-2 bg-neutral-800/90 hover:bg-neutral-700 text-white font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded transition-colors backdrop-blur-sm text-sm sm:text-base border border-neutral-700 shadow-md"
+              title="Restart from beginning"
+            >
+              <RotateCcw size={16} className="sm:w-[18px] sm:h-[18px]" />
+              <span>Restart</span>
+            </button>
+          )}
 
           {/* More Info Button */}
           <button

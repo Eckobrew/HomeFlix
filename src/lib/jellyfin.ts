@@ -506,22 +506,33 @@ export class JellyfinClient {
         `${this.url}/Shows/NextUp?UserId=${uid}&Limit=100`,
         { headers: this.getHeaders(), next: { revalidate: 60 } }
       );
-      const nextUpMap = new Map<string, string>();
+      const nextUpMap = new Map<string, { epId: string; positionTicks?: number; totalTicks?: number }>();
       if (nextUpRes.ok) {
         const nextUpData = await nextUpRes.json();
         for (const ep of nextUpData.Items || []) {
           if (ep.SeriesId && ep.Id && ep.LocationType !== 'Virtual') {
-            nextUpMap.set(ep.SeriesId, ep.Id);
+            nextUpMap.set(ep.SeriesId, {
+              epId: ep.Id,
+              positionTicks: ep.UserData?.PlaybackPositionTicks,
+              totalTicks: ep.RunTimeTicks,
+            });
           }
         }
       }
 
       await Promise.all(
         seriesItems.map(async (series) => {
-          const epId = nextUpMap.get(series.id) || await this.getSeriesFirstPlayableEpisodeId(series.id);
+          const nextUp = nextUpMap.get(series.id);
+          const epId = nextUp?.epId || await this.getSeriesFirstPlayableEpisodeId(series.id);
           if (epId) {
             series.videoStreamUrl = this.getStreamUrl(epId);
             series.playableEpisodeId = epId;
+            if (nextUp?.positionTicks && nextUp.positionTicks > 0) {
+              series.playbackPositionTicks = nextUp.positionTicks;
+              if (nextUp.totalTicks && nextUp.totalTicks > 0) {
+                series.progressPercent = Math.round((nextUp.positionTicks / nextUp.totalTicks) * 100);
+              }
+            }
           }
         })
       );
@@ -537,7 +548,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType`,
+        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,SeriesId,SeriesName`,
         { headers: this.getHeaders() }
       );
       if (!res.ok) return null;
@@ -558,6 +569,10 @@ export class JellyfinClient {
             media.videoStreamUrl = this.getStreamUrl(epId);
           }
         }
+      } else if (data.Type === 'Episode' && data.SeriesId) {
+        media.seasons = await this.getSeriesSeasons(data.SeriesId);
+        media.playableEpisodeId = data.Id;
+        media.videoStreamUrl = this.getStreamUrl(data.Id);
       }
 
       return media;
@@ -578,6 +593,45 @@ export class JellyfinClient {
       if (!res.ok) return [];
       const data = await res.json();
       const seasons: Season[] = [];
+
+      if (!data.Items || data.Items.length === 0) {
+        // Fallback: Fetch all episodes directly for the series and group by ParentIndexNumber
+        const allEpRes = await fetch(
+          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType`,
+          { headers: this.getHeaders() }
+        );
+        if (allEpRes.ok) {
+          const allEpData = await allEpRes.json();
+          const epItems = (allEpData.Items || []).filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual');
+          const seasonMap = new Map<number, Episode[]>();
+          for (const ep of epItems) {
+            const sNum = ep.ParentIndexNumber || 1;
+            if (!seasonMap.has(sNum)) seasonMap.set(sNum, []);
+            seasonMap.get(sNum)!.push({
+              id: ep.Id,
+              episodeNumber: ep.IndexNumber || 1,
+              seasonNumber: sNum,
+              name: ep.Name,
+              overview: ep.Overview || 'No description available.',
+              durationMinutes: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / (10000 * 1000 * 60)) : 45,
+              totalDurationTicks: ep.RunTimeTicks,
+              thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+              jellyfinId: ep.Id,
+              videoStreamUrl: this.getStreamUrl(ep.Id),
+            });
+          }
+
+          const sortedEntries = Array.from(seasonMap.entries()).sort(([a], [b]) => a - b);
+          return sortedEntries.map(([sNum, eps]) => ({
+            id: `season-${sNum}`,
+            seasonNumber: sNum,
+            name: `Season ${sNum}`,
+            episodeCount: eps.length,
+            episodes: eps.sort((a, b) => a.episodeNumber - b.episodeNumber),
+          }));
+        }
+        return [];
+      }
 
       for (const s of data.Items || []) {
         // Fetch episodes for season

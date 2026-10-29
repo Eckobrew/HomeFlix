@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Play,
+  RotateCcw,
   Plus,
   Check,
   Download,
@@ -58,8 +59,53 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   const currentItem = details || item;
   const isAvailable = currentItem.status === 'available' || currentItem.source === 'jellyfin' || currentItem.source === 'demo';
   const isRequested = currentItem.status === 'requested' || currentItem.status === 'processing';
+  const hasResume = Boolean(
+    (currentItem.playbackPositionTicks && currentItem.playbackPositionTicks > 0) ||
+    (currentItem.progressPercent && currentItem.progressPercent > 0)
+  );
   const seasons: Season[] = currentItem.seasons || [];
   const currentSeason = seasons[selectedSeasonIndex] || seasons[0];
+
+  const handleRestart = () => {
+    if (currentItem.type === 'Series') {
+      const allEps = currentItem.seasons?.flatMap((s) => s.episodes || []) || [];
+      const firstEp = allEps.find((ep) => ep.videoStreamUrl || ep.jellyfinId) || allEps[0];
+      const restartItem: MediaItem = {
+        ...currentItem,
+        playbackPositionTicks: 0,
+        progressPercent: 0,
+      };
+      const restartEp: Episode | undefined = firstEp ? {
+        ...firstEp,
+        playbackPositionTicks: 0,
+      } : undefined;
+
+      const targetId = restartEp?.jellyfinId || restartEp?.id || currentItem.playableEpisodeId || currentItem.jellyfinId || currentItem.id;
+      if (targetId) {
+        fetch('/api/playback/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemId: targetId, positionTicks: 0, isPaused: false }),
+        }).catch(() => {});
+      }
+      onPlay(restartItem, restartEp);
+    } else {
+      const restartItem: MediaItem = {
+        ...currentItem,
+        playbackPositionTicks: 0,
+        progressPercent: 0,
+      };
+      const targetId = currentItem.jellyfinId || currentItem.id;
+      if (targetId) {
+        fetch('/api/playback/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemId: targetId, positionTicks: 0, isPaused: false }),
+        }).catch(() => {});
+      }
+      onPlay(restartItem);
+    }
+  };
 
   return (
     <div
@@ -98,16 +144,27 @@ export const MediaModal: React.FC<MediaModalProps> = ({
 
             <div className="flex items-center space-x-2 sm:space-x-3">
               {isAvailable ? (
-                <button
-                  onClick={() => {
-                    const firstEp = currentItem.seasons?.flatMap((s) => s.episodes || []).find((ep) => ep.videoStreamUrl || ep.jellyfinId);
-                    onPlay(currentItem, firstEp);
-                  }}
-                  className="flex items-center space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-6 py-2 rounded transition-transform active:scale-95 shadow"
-                >
-                  <Play size={18} className="fill-black" />
-                  <span>Play</span>
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      const firstEp = currentItem.seasons?.flatMap((s) => s.episodes || []).find((ep) => ep.videoStreamUrl || ep.jellyfinId);
+                      onPlay(currentItem, firstEp);
+                    }}
+                    className="flex items-center space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-5 sm:px-6 py-2 rounded transition-transform active:scale-95 shadow"
+                  >
+                    <Play size={18} className="fill-black" />
+                    <span>{hasResume ? 'Resume' : 'Play'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleRestart}
+                    className="flex items-center space-x-2 bg-neutral-800/90 hover:bg-neutral-700 text-white font-semibold px-4 py-2 rounded transition-all active:scale-95 border border-neutral-700 shadow"
+                    title={`Restart ${currentItem.type === 'Series' ? 'from Episode 1' : 'from beginning'}`}
+                  >
+                    <RotateCcw size={16} />
+                    <span>Restart</span>
+                  </button>
+                </>
               ) : (
                 <button
                   onClick={() => onRequest(currentItem)}
@@ -230,7 +287,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
           </div>
 
           {/* TV Show Seasons & Episodes Section */}
-          {seasons.length > 0 && (
+          {(seasons.length > 0 || currentItem.type === 'Series' || currentItem.type === 'Episode') && (
             <div className="pt-6 border-t border-neutral-800 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-bold text-white">Episodes</h3>
@@ -290,14 +347,32 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="text-xs text-neutral-400 font-mono shrink-0 pl-2">
-                        {ep.durationMinutes}m
+                      <div className="flex items-center space-x-2 shrink-0 pl-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const restartEp: Episode = { ...ep, playbackPositionTicks: 0 };
+                            fetch('/api/playback/progress', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ itemId: ep.jellyfinId || ep.id, positionTicks: 0, isPaused: false }),
+                            }).catch(() => {});
+                            onPlay({ ...currentItem, playbackPositionTicks: 0 }, restartEp);
+                          }}
+                          className="p-1.5 rounded-full hover:bg-white/20 text-neutral-400 hover:text-white transition-colors"
+                          title={`Restart Episode ${ep.episodeNumber} from 0:00`}
+                        >
+                          <RotateCcw size={15} />
+                        </button>
+                        <div className="text-xs text-neutral-400 font-mono">
+                          {ep.durationMinutes}m
+                        </div>
                       </div>
                     </div>
                   ))
                 ) : (
                   <div className="text-sm text-neutral-400 italic py-4">
-                    Episode list available once indexed by Jellyfin.
+                    Loading seasons and episodes...
                   </div>
                 )}
               </div>
