@@ -183,6 +183,14 @@ export class JellyfinClient {
           DirectPlayProfiles: directPlayProfiles,
           TranscodingProfiles: [
             {
+              Container: 'ts',
+              Type: 'Video',
+              VideoCodec: 'h264',
+              AudioCodec: 'aac',
+              Protocol: 'hls',
+              Context: 'Streaming',
+            },
+            {
               Container: 'mp4',
               Type: 'Video',
               VideoCodec: 'h264',
@@ -210,9 +218,15 @@ export class JellyfinClient {
         const data = await res.json();
         const mediaSource = data.MediaSources?.[0];
         if (mediaSource) {
-          const totalDurationTicks = mediaSource.RunTimeTicks;
-          const durationSeconds = typeof mediaSource.RunTimeTicks === 'number' && mediaSource.RunTimeTicks > 0
-            ? mediaSource.RunTimeTicks / 10000000
+          let totalDurationTicks = mediaSource.RunTimeTicks;
+          if (!totalDurationTicks || totalDurationTicks <= 0) {
+            const itemDetails = await this.getItemDetails(itemId);
+            if (itemDetails?.totalDurationTicks) {
+              totalDurationTicks = itemDetails.totalDurationTicks;
+            }
+          }
+          const durationSeconds = typeof totalDurationTicks === 'number' && totalDurationTicks > 0
+            ? totalDurationTicks / 10000000
             : undefined;
 
           if (mediaSource.TranscodingUrl) {
@@ -258,6 +272,51 @@ export class JellyfinClient {
       streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
       isTranscoding: false,
     };
+  }
+
+  async reportPlaybackProgress(itemId: string, positionTicks: number, isPaused = false): Promise<boolean> {
+    if (!this.isConfigured() || !itemId) return false;
+    try {
+      const uid = await this.getFirstUserId();
+      await fetch(`${this.url}/Sessions/Playing/Progress`, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ItemId: itemId,
+          UserId: uid,
+          PositionTicks: positionTicks,
+          IsPaused: isPaused,
+        }),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async reportPlaybackStopped(itemId: string, positionTicks: number): Promise<boolean> {
+    if (!this.isConfigured() || !itemId) return false;
+    try {
+      const uid = await this.getFirstUserId();
+      await fetch(`${this.url}/Sessions/Playing/Stopped`, {
+        method: 'POST',
+        headers: {
+          ...this.getHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ItemId: itemId,
+          UserId: uid,
+          PositionTicks: positionTicks,
+        }),
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   getSubtitleStreamUrl(itemId: string, mediaSourceId: string, index: number): string {
@@ -347,7 +406,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/UserItems/Resume?userId=${uid}&Limit=12&Fields=Overview,Genres,OfficialRating,CommunityRating,People,LocationType`,
+        `${this.url}/UserItems/Resume?userId=${uid}&Limit=12&Fields=Overview,Genres,OfficialRating,CommunityRating,People,RunTimeTicks,LocationType`,
         { headers: this.getHeaders(), next: { revalidate: 30 } }
       );
       if (!res.ok) return [];
@@ -366,7 +425,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items?IncludeItemTypes=${type}&SortBy=DateCreated&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,LocationType`,
+        `${this.url}/Users/${uid}/Items?IncludeItemTypes=${type}&SortBy=DateCreated&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType`,
         { headers: this.getHeaders(), next: { revalidate: 60 } }
       );
       if (!res.ok) return [];
@@ -388,7 +447,7 @@ export class JellyfinClient {
     try {
       const uid = await this.getFirstUserId();
       const res = await fetch(
-        `${this.url}/Users/${uid}/Items?IncludeItemTypes=Movie,Series&SortBy=CommunityRating&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,LocationType`,
+        `${this.url}/Users/${uid}/Items?IncludeItemTypes=Movie,Series&SortBy=CommunityRating&SortOrder=Descending&Limit=${limit}&Recursive=true&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType`,
         { headers: this.getHeaders(), next: { revalidate: 120 } }
       );
       if (!res.ok) return [];

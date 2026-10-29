@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import Hls from 'hls.js';
 import {
   ArrowLeft,
   Play,
@@ -38,10 +39,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [isVolumeHovered, setIsVolumeHovered] = useState(false);
@@ -322,10 +325,115 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     };
   }, [resetControlsTimer]);
 
+  // Attach media stream via Hls.js or native HTML5 video
+  useEffect(() => {
+    if (!streamUrl || !videoRef.current) return;
+    const video = videoRef.current;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    // Determine target resume position in seconds
+    let resumeSeconds = 0;
+    if (activeEpisode?.playbackPositionTicks && activeEpisode.playbackPositionTicks > 0) {
+      resumeSeconds = Math.floor(activeEpisode.playbackPositionTicks / 10000000);
+    } else if (item.playbackPositionTicks && item.playbackPositionTicks > 0) {
+      resumeSeconds = Math.floor(item.playbackPositionTicks / 10000000);
+    }
+
+    const isHls = streamUrl.includes('.m3u8');
+
+    if (isHls && Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        backBufferLength: 90,
+      });
+      hlsRef.current = hls;
+
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setIsLoadingStream(false);
+        if (resumeSeconds > 0) {
+          video.currentTime = resumeSeconds;
+          setCurrentTime(resumeSeconds);
+        }
+        video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      });
+
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              handlePlaybackError();
+              break;
+          }
+        }
+      });
+    } else if (isHls && video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native Safari HLS
+      video.src = streamUrl;
+      const onLoaded = () => {
+        setIsLoadingStream(false);
+        if (resumeSeconds > 0) {
+          video.currentTime = resumeSeconds;
+          setCurrentTime(resumeSeconds);
+        }
+        video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        video.removeEventListener('loadedmetadata', onLoaded);
+      };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.load();
+    } else {
+      // Direct MP4 video stream
+      video.src = streamUrl;
+      const onLoaded = () => {
+        setIsLoadingStream(false);
+        if (resumeSeconds > 0) {
+          video.currentTime = resumeSeconds;
+          setCurrentTime(resumeSeconds);
+        }
+        video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        video.removeEventListener('loadedmetadata', onLoaded);
+      };
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.load();
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [streamUrl]);
+
   // Video event handlers
   const handleTimeUpdate = () => {
-    if (videoRef.current) {
-      setCurrentTime(videoRef.current.currentTime);
+    if (videoRef.current && !isScrubbing) {
+      const cur = videoRef.current.currentTime;
+      setCurrentTime(cur);
+
+      // Guard against chunk duration (e.g. 0:05) overriding true runtime
+      setDuration((prev) => {
+        const bestKnown = knownDurationSeconds > 0 ? knownDurationSeconds : 0;
+        const candidate = Math.max(prev, bestKnown, cur);
+        if (candidate <= 30 && bestKnown > 30) {
+          return bestKnown;
+        }
+        return candidate;
+      });
+
       const effectiveDuration = duration > 0 ? duration : (knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0));
       if (videoRef.current.buffered.length > 0 && effectiveDuration > 0) {
         const buffEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
@@ -337,32 +445,24 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       const videoDur = videoRef.current.duration;
-      // Jellyfin transcode chunks (e.g. 5s) report a tiny segment duration.
-      // Never overwrite duration with a small segment duration (< 60s) when the title has a known longer duration.
-      if (Number.isFinite(videoDur) && videoDur > 60 && (!knownDurationSeconds || videoDur >= knownDurationSeconds * 0.7)) {
+      // If we have knownDurationSeconds from Jellyfin metadata, prefer it unless videoDur is finite, >= 60s, and close to known duration
+      if (knownDurationSeconds > 0) {
+        if (Number.isFinite(videoDur) && videoDur >= knownDurationSeconds * 0.9) {
+          setDuration(videoDur);
+        } else {
+          setDuration(knownDurationSeconds);
+        }
+      } else if (Number.isFinite(videoDur) && videoDur > 30) {
         setDuration(videoDur);
-      } else if (knownDurationSeconds > 0) {
-        setDuration(knownDurationSeconds);
-      } else if (Number.isFinite(videoDur) && videoDur > 0) {
-        setDuration(videoDur);
       }
-
-      // Auto-resume from previous playback position
-      let resumeSeconds = 0;
-      if (activeEpisode?.playbackPositionTicks && activeEpisode.playbackPositionTicks > 0) {
-        resumeSeconds = Math.floor(activeEpisode.playbackPositionTicks / 10000000);
-      } else if (item.playbackPositionTicks && item.playbackPositionTicks > 0) {
-        resumeSeconds = Math.floor(item.playbackPositionTicks / 10000000);
-      }
-
-      const effectiveDuration = knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0);
-      if (resumeSeconds > 0 && effectiveDuration > 0 && resumeSeconds < effectiveDuration - 5) {
-        videoRef.current.currentTime = resumeSeconds;
-      }
-
-      videoRef.current.play().catch(() => setIsPlaying(false));
     }
   };
+
+  const displayDuration = duration > 0 && duration >= currentTime
+    ? duration
+    : knownDurationSeconds > 0 && knownDurationSeconds >= currentTime
+      ? knownDurationSeconds
+      : currentTime > 0 ? currentTime : (knownDurationSeconds || 0);
 
   const togglePlay = () => {
     if (!videoRef.current) return;
@@ -379,15 +479,24 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const seek = (seconds: number) => {
     if (!videoRef.current) return;
-    videoRef.current.currentTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, duration));
+    const targetDuration = duration > 0 ? duration : (knownDurationSeconds || videoRef.current.duration || 100);
+    const newTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, targetDuration));
+    videoRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
     resetControlsTimer();
   };
 
-  const handleScrub = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleScrubChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTime = Number(e.target.value);
     setCurrentTime(newTime);
+    setIsScrubbing(true);
+    resetControlsTimer();
+  };
+
+  const handleScrubEnd = () => {
+    setIsScrubbing(false);
     if (videoRef.current) {
-      videoRef.current.currentTime = newTime;
+      videoRef.current.currentTime = currentTime;
     }
     resetControlsTimer();
   };
@@ -418,10 +527,55 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
   };
 
+  // Report playback progress back to Jellyfin for Resume / Continue Watching tracking
+  const reportProgress = useCallback((isStopped = false) => {
+    const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
+    if (!targetId || !videoRef.current) return;
+
+    const currentSecs = videoRef.current.currentTime;
+    if (currentSecs <= 0) return;
+
+    const positionTicks = Math.round(currentSecs * 10000000);
+    const payload = JSON.stringify({
+      itemId: targetId,
+      positionTicks,
+      isPaused: !isPlaying,
+      isStopped,
+    });
+
+    if (isStopped && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/playback/progress', payload);
+    } else {
+      fetch('/api/playback/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+      }).catch(() => {});
+    }
+  }, [activePlayableId, item, isPlaying]);
+
+  // Periodic progress reporting every 10 seconds while playing
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      reportProgress(false);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isPlaying, reportProgress]);
+
+  const handleClose = () => {
+    reportProgress(true);
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    onClose();
+  };
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
       if (e.key === ' ' || e.key === 'k') {
         e.preventDefault();
         togglePlay();
@@ -437,7 +591,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPlaying, duration]);
+  }, [isPlaying, duration, currentTime]);
 
   const formatTime = (secs: number) => {
     const hours = Math.floor(secs / 3600);
@@ -492,7 +646,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               Retry Playback
             </button>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="bg-neutral-800 hover:bg-neutral-700 text-gray-300 font-semibold px-4 py-2.5 rounded transition-colors"
             >
               Close
@@ -505,7 +659,6 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       <div className="relative w-full h-full flex items-center justify-center" onClick={togglePlay}>
         <video
           ref={videoRef}
-          src={streamUrl}
           crossOrigin="anonymous"
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
@@ -538,7 +691,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           {/* Back button + Media Title */}
           <div className="flex items-center space-x-2.5 sm:space-x-4 min-w-0 flex-1 mr-4">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 sm:p-2 rounded-full hover:bg-white/20 text-white transition-colors shrink-0"
               title="Back (Esc)"
             >
@@ -589,10 +742,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             <input
               type="range"
               min={0}
-              max={duration || 100}
+              max={displayDuration || 100}
               step={0.1}
               value={currentTime}
-              onChange={handleScrub}
+              onChange={handleScrubChange}
+              onMouseUp={handleScrubEnd}
+              onTouchEnd={handleScrubEnd}
               className="w-full h-1 bg-neutral-600 rounded-lg appearance-none cursor-pointer accent-red-600 group-hover/scrubber:h-2 transition-all"
             />
           </div>
@@ -634,34 +789,30 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
                 <button onClick={toggleMute} className="hover:text-neutral-300 transition-colors p-1" title={isMuted ? 'Unmute' : 'Mute'}>
                   {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </button>
-                <div
-                  className={`hidden sm:flex overflow-hidden items-center transition-all duration-300 ${
-                    isVolumeHovered || isVolumeInteracting
-                      ? 'w-20 opacity-100 pointer-events-auto'
-                      : 'w-0 opacity-0 pointer-events-none'
-                  }`}
-                >
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={isMuted ? 0 : volume}
-                    onChange={handleVolumeChange}
-                    onMouseDown={() => setIsVolumeInteracting(true)}
-                    onMouseUp={() => setIsVolumeInteracting(false)}
-                    onTouchStart={() => setIsVolumeInteracting(true)}
-                    onTouchEnd={() => setIsVolumeInteracting(false)}
-                    className="w-20 h-1 bg-neutral-600 rounded appearance-none cursor-pointer accent-white"
-                  />
-                </div>
+                {(isVolumeHovered || isVolumeInteracting) && (
+                  <div className="hidden sm:flex items-center w-20 transition-all duration-200">
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={isMuted ? 0 : volume}
+                      onChange={handleVolumeChange}
+                      onMouseDown={() => setIsVolumeInteracting(true)}
+                      onMouseUp={() => setIsVolumeInteracting(false)}
+                      onTouchStart={() => setIsVolumeInteracting(true)}
+                      onTouchEnd={() => setIsVolumeInteracting(false)}
+                      className="w-20 h-1 bg-neutral-600 rounded appearance-none cursor-pointer accent-white"
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Time Display */}
               <div className="text-[11px] sm:text-xs md:text-sm font-mono text-neutral-300 whitespace-nowrap">
                 <span>{formatTime(currentTime)}</span>
                 <span className="mx-1 text-neutral-500">/</span>
-                <span>{formatTime(duration)}</span>
+                <span>{formatTime(displayDuration)}</span>
               </div>
             </div>
 
