@@ -10,6 +10,7 @@ import {
   Download,
   ThumbsUp,
   Clock,
+  Film,
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
@@ -33,27 +34,54 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   const [details, setDetails] = useState<MediaItem | null>(item);
   const [requestingEpId, setRequestingEpId] = useState<string | null>(null);
   const [requestedEpIds, setRequestedEpIds] = useState<Set<string>>(new Set());
+  const [trailerKey, setTrailerKey] = useState<string | null>(item?.trailerKey || null);
+  const [isPlayingTrailer, setIsPlayingTrailer] = useState(false);
+  const [recommendations, setRecommendations] = useState<MediaItem[]>([]);
+  const [isLoadingRecs, setIsLoadingRecs] = useState(false);
 
   useEffect(() => {
     setDetails(item);
+    setIsPlayingTrailer(false);
+    setSelectedSeasonIndex(0);
+    setTrailerKey(item?.trailerKey || null);
     if (!item) return;
 
-    // Load full details & episodes from API if item is from Jellyfin
-    const fetchFullDetails = async () => {
-      try {
-        const res = await fetch(`/api/media/${item.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.item) {
-            setDetails(data.item);
+    // 1. Fetch full details & seasons
+    fetch(`/api/media/${item.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.item) {
+          setDetails(data.item);
+          if (data.item.trailerKey) {
+            setTrailerKey(data.item.trailerKey);
           }
         }
-      } catch (err) {
-        console.error('Failed to load item details:', err);
-      }
-    };
+      })
+      .catch((err) => console.error('Failed to load item details:', err));
 
-    fetchFullDetails();
+    // 2. Fetch trailer for movie or series
+    const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace('seerr-', '')) : undefined);
+    const type = item.type === 'Series' ? 'tv' : 'movie';
+    fetch(`/api/trailer?tmdbId=${tmdb || ''}&type=${type}&itemId=${item.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.trailer?.key) {
+          setTrailerKey(data.trailer.key);
+        }
+      })
+      .catch(() => {});
+
+    // 3. Fetch recommended movies / titles based on this particular film
+    setIsLoadingRecs(true);
+    fetch(`/api/media/${item.id}/recommendations?type=${type}&tmdbId=${tmdb || ''}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.recommendations && Array.isArray(data.recommendations)) {
+          setRecommendations(data.recommendations);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingRecs(false));
   }, [item]);
 
   if (!item) return null;
@@ -168,15 +196,36 @@ export const MediaModal: React.FC<MediaModalProps> = ({
         </button>
 
         {/* Modal Hero Banner */}
-        <div className="relative aspect-[16/9] max-h-[420px] w-full bg-neutral-900">
-          <img
-            src={currentItem.backdropUrl || currentItem.posterUrl}
-            alt={currentItem.title}
-            className="w-full h-full object-cover"
-          />
-          {/* Cinematic Gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/40 to-transparent pointer-events-none" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent pointer-events-none" />
+        <div className="relative aspect-[16/9] max-h-[420px] w-full bg-neutral-900 overflow-hidden">
+          {isPlayingTrailer && trailerKey ? (
+            <div className="relative w-full h-full bg-black">
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&controls=1&modestbranding=1&rel=0`}
+                title={`${currentItem.title} Trailer`}
+                className="w-full h-full"
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
+              />
+              <button
+                onClick={() => setIsPlayingTrailer(false)}
+                className="absolute top-4 left-4 z-30 px-3 py-1.5 rounded-full bg-black/80 hover:bg-black text-white text-xs font-semibold backdrop-blur-sm border border-white/20 transition-colors flex items-center space-x-1.5 shadow-lg"
+              >
+                <X size={14} />
+                <span>Close Trailer</span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <img
+                src={currentItem.backdropUrl || currentItem.posterUrl}
+                alt={currentItem.title}
+                className="w-full h-full object-cover"
+              />
+              {/* Cinematic Gradients */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-[#181818]/40 to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent pointer-events-none" />
+            </>
+          )}
 
           {/* Action Row on Top of Hero */}
           <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 md:left-10 z-30 space-y-2.5 sm:space-y-3 pointer-events-auto max-w-[92%] sm:max-w-none">
@@ -242,6 +291,18 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                 >
                   {isRequested ? <Clock size={18} /> : <Download size={18} />}
                   <span>{isRequested ? 'Requested (Downloading)' : 'Request via Seerr'}</span>
+                </button>
+              )}
+
+              {/* Watch Trailer Button */}
+              {trailerKey && !isPlayingTrailer && (
+                <button
+                  onClick={() => setIsPlayingTrailer(true)}
+                  className="flex items-center space-x-1.5 bg-neutral-800/90 hover:bg-neutral-700 text-white font-semibold px-4 py-2 rounded transition-all active:scale-95 border border-neutral-700 shadow"
+                  title="Watch Official Trailer"
+                >
+                  <Film size={16} className="text-red-500" />
+                  <span>Trailer</span>
                 </button>
               )}
 
@@ -591,6 +652,120 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                     Loading seasons and episodes...
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* More Like This / Recommended Section */}
+          {recommendations.length > 0 && (
+            <div className="pt-6 border-t border-neutral-800 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-white">More Like This</h3>
+                  <p className="text-xs text-neutral-400">
+                    Recommended based on {currentItem.title}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                {recommendations.slice(0, 6).map((rec) => {
+                  const recAvailable = rec.status === 'available' || rec.source === 'jellyfin';
+                  const recRequested = rec.status === 'requested' || rec.status === 'processing';
+
+                  return (
+                    <div
+                      key={rec.id}
+                      onClick={() => {
+                        setDetails(rec);
+                        setIsPlayingTrailer(false);
+                      }}
+                      className="rounded-md bg-neutral-900 border border-neutral-800 overflow-hidden cursor-pointer hover:border-neutral-600 transition-all group flex flex-col justify-between"
+                    >
+                      {/* Thumbnail with Status Badge */}
+                      <div className="relative aspect-video w-full bg-neutral-950 overflow-hidden">
+                        <img
+                          src={rec.backdropUrl || rec.posterUrl}
+                          alt={rec.title}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                        />
+                        <div className="absolute top-2 right-2 z-10">
+                          {recAvailable ? (
+                            <span className="bg-emerald-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow backdrop-blur-sm">
+                              ON JELLYFIN
+                            </span>
+                          ) : recRequested ? (
+                            <span className="bg-amber-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow backdrop-blur-sm flex items-center space-x-1">
+                              <Clock size={9} />
+                              <span>REQUESTED</span>
+                            </span>
+                          ) : (
+                            <span className="bg-blue-600/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow backdrop-blur-sm flex items-center space-x-1">
+                              <Download size={9} />
+                              <span>DOWNLOAD</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Title overlay */}
+                        <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 via-black/40 to-transparent">
+                          <h4 className="text-white text-xs font-bold truncate drop-shadow">
+                            {rec.title}
+                          </h4>
+                        </div>
+                      </div>
+
+                      {/* Details & Actions */}
+                      <div className="p-3 space-y-2 flex-1 flex flex-col justify-between">
+                        <div className="space-y-1">
+                          <div className="flex items-center space-x-2 text-[11px] font-semibold">
+                            <span className="text-emerald-400">{rec.matchPercentage || 94}% Match</span>
+                            <span className="border border-neutral-700 px-1 py-0.2 rounded text-[10px] text-neutral-300">
+                              {rec.rating || 'PG-13'}
+                            </span>
+                            {rec.year && <span className="text-neutral-400">{rec.year}</span>}
+                          </div>
+                          <p className="text-[11px] text-neutral-400 line-clamp-2 leading-relaxed">
+                            {rec.overview}
+                          </p>
+                        </div>
+
+                        {/* Action button */}
+                        <div className="pt-2">
+                          {recAvailable ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPlay(rec);
+                              }}
+                              className="w-full py-1.5 bg-white hover:bg-neutral-200 text-black font-bold text-xs rounded flex items-center justify-center space-x-1.5 transition-colors shadow"
+                            >
+                              <Play size={13} className="fill-black" />
+                              <span>Watch Now</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRequest(rec);
+                              }}
+                              disabled={recRequested}
+                              className={`w-full py-1.5 font-bold text-xs rounded flex items-center justify-center space-x-1.5 transition-colors shadow ${
+                                recRequested
+                                  ? 'bg-amber-600/30 text-amber-300 border border-amber-600/40 cursor-default'
+                                  : 'bg-red-600 hover:bg-red-500 text-white'
+                              }`}
+                            >
+                              {recRequested ? <Check size={13} /> : <Download size={13} />}
+                              <span>{recRequested ? 'Requested' : 'Download via Seerr'}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

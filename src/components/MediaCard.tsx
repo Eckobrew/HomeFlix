@@ -27,6 +27,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const [isFavorite, setIsFavorite] = useState(false);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const [isPreviewMuted, setIsPreviewMuted] = useState(true);
+  const [trailerKey, setTrailerKey] = useState<string | null>(item.trailerKey || null);
   const [alignment, setAlignment] = useState<'left' | 'center' | 'right'>(
     isFirst ? 'left' : isLast ? 'right' : 'center'
   );
@@ -36,6 +37,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const previewStartTimeRef = useRef<number>(0);
 
   const isAvailable = item.status === 'available' || item.source === 'jellyfin' || item.source === 'demo';
@@ -106,6 +108,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         previewTimeoutRef.current = setTimeout(() => {
           setIsPlayingPreview(true);
         }, 400);
+      } else {
+        // Fetch trailer for requests / un-downloaded items
+        const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace('seerr-', '')) : undefined);
+        const type = item.type === 'Series' ? 'tv' : 'movie';
+        fetch(`/api/trailer?tmdbId=${tmdb || ''}&type=${type}&itemId=${item.id}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.trailer?.key) {
+              setTrailerKey(data.trailer.key);
+              previewTimeoutRef.current = setTimeout(() => {
+                setIsPlayingPreview(true);
+              }, 400);
+            }
+          })
+          .catch(() => {});
       }
     }, 280);
   };
@@ -297,11 +314,11 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               src={item.backdropUrl || item.posterUrl}
               alt={item.title}
               className={`w-full h-full object-cover transition-opacity duration-300 ${
-                isPlayingPreview && item.videoStreamUrl ? 'opacity-0' : 'opacity-100'
+                isPlayingPreview && (item.videoStreamUrl || trailerKey) ? 'opacity-0' : 'opacity-100'
               }`}
             />
 
-            {/* Video Preview Streaming Random Section */}
+            {/* Video Preview Streaming Random Section (Jellyfin Media) */}
             {isPlayingPreview && item.videoStreamUrl && (
               <video
                 ref={videoRef}
@@ -316,8 +333,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               />
             )}
 
+            {/* YouTube Trailer Preview for Requests / Un-downloaded Media */}
+            {isPlayingPreview && !item.videoStreamUrl && trailerKey && (
+              <div className="absolute inset-0 w-full h-full overflow-hidden bg-black pointer-events-none">
+                <iframe
+                  ref={iframeRef}
+                  src={`https://www.youtube-nocookie.com/embed/${trailerKey}?autoplay=1&mute=${isPreviewMuted ? 1 : 0}&controls=0&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&loop=1&playlist=${trailerKey}&playsinline=1&enablejsapi=1`}
+                  title={item.title}
+                  className="w-full h-full object-cover scale-135 pointer-events-none"
+                  allow="autoplay; encrypted-media"
+                />
+              </div>
+            )}
+
             {/* Preview Audio Mute/Unmute Button */}
-            {isPlayingPreview && item.videoStreamUrl && (
+            {isPlayingPreview && (item.videoStreamUrl || trailerKey) && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -325,6 +355,12 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                   setIsPreviewMuted(nextMute);
                   if (videoRef.current) {
                     videoRef.current.muted = nextMute;
+                  }
+                  if (iframeRef.current?.contentWindow) {
+                    iframeRef.current.contentWindow.postMessage(
+                      JSON.stringify({ event: 'command', func: nextMute ? 'mute' : 'unMute', args: [] }),
+                      '*'
+                    );
                   }
                 }}
                 className="absolute bottom-2 right-2 z-20 p-1.5 rounded-full bg-black/70 hover:bg-black/90 text-white backdrop-blur-sm transition-colors border border-white/30"

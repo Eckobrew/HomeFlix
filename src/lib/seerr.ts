@@ -379,6 +379,17 @@ export class SeerrClient {
         mapped.director = tvData.createdBy.map((cr: any) => cr.name).join(', ');
       }
 
+      // Trailer
+      const videos = tvData.relatedVideos || [];
+      const ytVideos = videos.filter((v: any) => v.site === 'YouTube' && v.key);
+      const trailer = ytVideos.find((v: any) => v.type === 'Trailer') ||
+                      ytVideos.find((v: any) => v.type === 'Teaser') ||
+                      ytVideos[0];
+      if (trailer) {
+        mapped.trailerKey = trailer.key;
+        mapped.trailerUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+      }
+
       const regularSeasons = (tvData.seasons || []).filter((s: any) => s.seasonNumber > 0);
       const seasonsWithEpisodes: Season[] = await Promise.all(
         regularSeasons.map(async (s: any) => {
@@ -456,10 +467,71 @@ export class SeerrClient {
         mapped.durationMinutes = movieData.runtime;
       }
 
+      // Trailer
+      const videos = movieData.relatedVideos || [];
+      const ytVideos = videos.filter((v: any) => v.site === 'YouTube' && v.key);
+      const trailer = ytVideos.find((v: any) => v.type === 'Trailer') ||
+                      ytVideos.find((v: any) => v.type === 'Teaser') ||
+                      ytVideos[0];
+      if (trailer) {
+        mapped.trailerKey = trailer.key;
+        mapped.trailerUrl = `https://www.youtube.com/watch?v=${trailer.key}`;
+      }
+
       return mapped;
     } catch (err) {
       console.error(`Failed to fetch movie details from Seerr for ID ${tmdbId}:`, err);
       return null;
+    }
+  }
+
+  async getTrailers(tmdbId: number, mediaType: 'movie' | 'tv' = 'movie'): Promise<{ key: string; name: string; site: string; type: string } | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const type = mediaType === 'tv' ? 'tv' : 'movie';
+      const res = await fetch(`${this.url}/api/v1/${type}/${tmdbId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 3600 },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const videos: any[] = data.relatedVideos || [];
+      const ytVideos = videos.filter((v) => v.site === 'YouTube' && v.key);
+      if (ytVideos.length === 0) return null;
+
+      const trailer = ytVideos.find((v) => v.type === 'Trailer') ||
+                      ytVideos.find((v) => v.type === 'Teaser') ||
+                      ytVideos[0];
+      return {
+        key: trailer.key,
+        name: trailer.name || 'Official Trailer',
+        site: 'YouTube',
+        type: trailer.type || 'Trailer',
+      };
+    } catch (e) {
+      console.error(`Failed to fetch trailer for ${mediaType} ${tmdbId}:`, e);
+      return null;
+    }
+  }
+
+  async getRecommendations(tmdbId: number, mediaType: 'movie' | 'tv' = 'movie', page = 1): Promise<MediaItem[]> {
+    if (!this.isConfigured() || !tmdbId) return [];
+    try {
+      const type = mediaType === 'tv' ? 'tv' : 'movie';
+      const res = await fetch(
+        `${this.url}/api/v1/${type}/${tmdbId}/recommendations?page=${page}`,
+        { headers: this.getHeaders(), next: { revalidate: 3600 } }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: SeerrResult[] = (data.results || []).map((r: any) => ({
+        ...r,
+        mediaType: type,
+      }));
+      return results.map((r) => this.mapResult(r));
+    } catch (e) {
+      console.error(`Error fetching recommendations from Seerr for ${mediaType} ${tmdbId}:`, e);
+      return [];
     }
   }
 

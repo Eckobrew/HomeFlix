@@ -73,6 +73,8 @@ export interface MediaItem {
   director?: string;
   seasons?: Season[];
   videoStreamUrl?: string;
+  trailerKey?: string; // YouTube video key e.g. "dfeUzm6KF4g"
+  trailerUrl?: string; // YouTube video URL
   resolution?: string;   // e.g. "4K UHD", "1080p HD", "720p HD", "HD", "SD"
   videoQuality?: string; // e.g. "4K", "1080p", "720p", "SD"
   audioQuality?: string; // e.g. "Dolby Atmos", "5.1 Surround", "7.1 Surround", "Stereo", "Mono"

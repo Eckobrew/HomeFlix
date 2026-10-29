@@ -33,6 +33,11 @@ export interface JellyfinItem {
   SeasonId?: string;
   LocationType?: string;
   Container?: string;
+  ProviderIds?: {
+    Tmdb?: string;
+    Imdb?: string;
+    [key: string]: string | undefined;
+  };
   Width?: number;
   Height?: number;
   MediaStreams?: {
@@ -668,6 +673,7 @@ export class JellyfinClient {
       seasonsCount: isSeries && typeof item.ChildCount === 'number' && item.ChildCount > 0 ? item.ChildCount : undefined,
       source: 'jellyfin',
       jellyfinId: item.Id,
+      tmdbId: item.ProviderIds?.Tmdb ? Number(item.ProviderIds.Tmdb) : undefined,
       status: 'available',
       played: Boolean(item.UserData?.Played),
       playbackPositionTicks: playbackTicks,
@@ -913,6 +919,24 @@ export class JellyfinClient {
     } catch (e) {
       console.error('Error fetching item details from Jellyfin:', e);
       return null;
+    }
+  }
+
+  async getSimilarItems(itemId: string, limit = 12): Promise<MediaItem[]> {
+    if (!this.isConfigured() || !itemId) return [];
+    try {
+      const uid = await this.getFirstUserId();
+      const res = await fetch(
+        `${this.url}/Items/${itemId}/Similar?userId=${uid}&limit=${limit}&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,RunTimeTicks,ProviderIds,LocationType`,
+        { headers: this.getHeaders(), next: { revalidate: 300 } }
+      );
+      if (!res.ok) return [];
+      const data = await res.json();
+      const validItems = (data.Items || []).filter((item: JellyfinItem) => item.LocationType !== 'Virtual');
+      return validItems.map((item: JellyfinItem) => this.mapJellyfinItem(item));
+    } catch (e) {
+      console.error('Error fetching similar items from Jellyfin:', e);
+      return [];
     }
   }
 
