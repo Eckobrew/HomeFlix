@@ -17,6 +17,7 @@ import {
   Check,
   X,
   AlertCircle,
+  Cast,
 } from 'lucide-react';
 import { MediaItem, Episode, SubtitleTrack } from '@/types';
 
@@ -65,6 +66,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<string | null>(null);
   const [showSubtitleMenu, setShowSubtitleMenu] = useState(false);
   const [isLoadingSubtitles, setIsLoadingSubtitles] = useState(false);
+
+  // Chromecast / Remote Playback state
+  const [isCastAvailable, setIsCastAvailable] = useState(false);
+  const [isCasting, setIsCasting] = useState(false);
+  const [isCastConnecting, setIsCastConnecting] = useState(false);
+  const [castDeviceName, setCastDeviceName] = useState<string>('');
 
   // Active episode / target ID
   const [activeEpisode, setActiveEpisode] = useState<Episode | undefined>(episode);
@@ -176,6 +183,335 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       }
     }
   }, [selectedSubtitleId, subtitles]);
+
+  const currentTitle = useMemo(() => {
+    return activeEpisode
+      ? `${item.title}: S${activeEpisode.seasonNumber}E${activeEpisode.episodeNumber} - ${activeEpisode.name}`
+      : item.title;
+  }, [item.title, activeEpisode]);
+
+  // Synchronize subtitle track change locally and on remote Chromecast receiver
+  const changeSubtitleTrack = useCallback(
+    (subId: string | null) => {
+      setSelectedSubtitleId(subId);
+
+      // If casting via Google Cast SDK, update active tracks on receiver
+      if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+        try {
+          const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+          const media = session?.getMediaSession();
+          if (media) {
+            let activeTrackIds: number[] = [];
+            if (subId !== null) {
+              const subIdx = subtitles.findIndex((s) => s.id === subId);
+              if (subIdx !== -1) {
+                activeTrackIds = [subIdx + 1];
+              }
+            }
+            const tracksRequest = new (window as any).chrome.cast.media.EditTracksInfoRequest(activeTrackIds);
+            media.editTracksInfo(
+              tracksRequest,
+              () => console.log('Chromecast subtitle track updated:', activeTrackIds),
+              (err: any) => console.warn('Failed to update Chromecast subtitle track:', err)
+            );
+          }
+        } catch (e) {
+          console.warn('Chromecast subtitle edit exception:', e);
+        }
+      }
+    },
+    [isCasting, subtitles]
+  );
+
+  // Load media stream with metadata and subtitles onto connected Chromecast receiver
+  const loadCastMedia = useCallback(() => {
+    try {
+      if (typeof window === 'undefined' || !(window as any).cast?.framework) return;
+      const castContext = (window as any).cast.framework.CastContext.getInstance();
+      const session = castContext.getCurrentSession();
+      if (!session) return;
+
+      const deviceName = session.getCastDevice()?.friendlyName;
+      if (deviceName) setCastDeviceName(deviceName);
+
+      const rawUrl = streamUrl || videoRef.current?.currentSrc || videoRef.current?.src;
+      if (!rawUrl) return;
+
+      const absoluteMediaUrl = new URL(rawUrl, window.location.href).href;
+      const isHls = absoluteMediaUrl.includes('.m3u8');
+      const contentType = isHls ? 'application/x-mpegURL' : 'video/mp4';
+
+      const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(absoluteMediaUrl, contentType);
+      mediaInfo.metadata = new (window as any).chrome.cast.media.GenericMediaMetadata();
+      mediaInfo.metadata.title = currentTitle;
+      mediaInfo.metadata.subtitle = activeEpisode ? item.title : (item.overview || '');
+
+      const poster = activeEpisode?.thumbnailUrl || item.backdropUrl || item.posterUrl;
+      if (poster) {
+        mediaInfo.metadata.images = [{ url: new URL(poster, window.location.href).href }];
+      }
+
+      mediaInfo.streamType = (window as any).chrome.cast.media.StreamType.BUFFERED;
+
+      if (subtitles && subtitles.length > 0 && (window as any).chrome?.cast?.media?.Track) {
+        mediaInfo.tracks = subtitles.map((sub, idx) => {
+          const track = new (window as any).chrome.cast.media.Track(
+            idx + 1,
+            (window as any).chrome.cast.media.TrackType.TEXT
+          );
+          track.trackContentId = new URL(sub.src, window.location.href).href;
+          track.trackContentType = 'text/vtt';
+          track.subtype = (window as any).chrome.cast.media.TextTrackType.SUBTITLES;
+          track.name = sub.title;
+          track.language = sub.language;
+          return track;
+        });
+      }
+
+      const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
+      request.currentTime = videoRef.current?.currentTime || currentTime || 0;
+      request.autoplay = isPlaying;
+
+      if (selectedSubtitleId) {
+        const subIdx = subtitles.findIndex((s) => s.id === selectedSubtitleId);
+        if (subIdx !== -1) {
+          request.activeTrackIds = [subIdx + 1];
+        }
+      }
+
+      session.loadMedia(request).then(
+        () => {
+          setIsCasting(true);
+          setIsCastConnecting(false);
+          if (videoRef.current && !videoRef.current.paused) {
+            videoRef.current.pause();
+          }
+        },
+        (err: any) => {
+          console.error('Error loading media to Chromecast:', err);
+          setIsCastConnecting(false);
+        }
+      );
+    } catch (e) {
+      console.error('Cast media load exception:', e);
+    }
+  }, [streamUrl, currentTitle, item, activeEpisode, currentTime, isPlaying, subtitles, selectedSubtitleId]);
+
+  // Disconnect from Chromecast session
+  const handleDisconnectCast = useCallback(() => {
+    if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const castContext = (window as any).cast.framework.CastContext.getInstance();
+        castContext.endCurrentSession(true);
+      } catch (e) {}
+    }
+    const video = videoRef.current;
+    if (video && 'remote' in video && (video as any).remote?.prompt) {
+      (video as any).remote.prompt().catch(() => {});
+    }
+    setIsCasting(false);
+    setIsCastConnecting(false);
+    setCastDeviceName('');
+    if (videoRef.current) {
+      videoRef.current.currentTime = currentTime;
+      if (isPlaying) {
+        videoRef.current.play().catch(console.error);
+      }
+    }
+  }, [currentTime, isPlaying]);
+
+  // Cast button click handler supporting both Google Cast SDK and RemotePlayback API
+  const handleCastClick = useCallback(async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    if (isCasting) {
+      handleDisconnectCast();
+      return;
+    }
+
+    setIsCastConnecting(true);
+
+    // 1. Google Cast Framework
+    if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const castContext = (window as any).cast.framework.CastContext.getInstance();
+        await castContext.requestSession();
+        return;
+      } catch (err: any) {
+        if (err?.errorCode === 'cancel' || err?.message?.includes('cancel')) {
+          setIsCastConnecting(false);
+          return;
+        }
+        console.warn('Google Cast requestSession fallback:', err);
+      }
+    }
+
+    // 2. HTMLMediaElement Remote Playback API (Android / Samsung Internet)
+    const video = videoRef.current;
+    if (video && 'remote' in video && (video as any).remote?.prompt) {
+      try {
+        await (video as any).remote.prompt();
+        return;
+      } catch (err: any) {
+        setIsCastConnecting(false);
+        if (err?.name === 'AbortError' || err?.name === 'NotAllowedError') {
+          return;
+        }
+        console.warn('RemotePlayback prompt fallback:', err);
+      }
+    }
+
+    setIsCastConnecting(false);
+    alert(
+      'To cast to Chromecast or Google TV:\n• Make sure your device is on the same Wi-Fi network as your Chromecast.\n• Use Google Chrome, Samsung Internet, or Microsoft Edge.'
+    );
+  }, [isCasting, handleDisconnectCast]);
+
+  // Initialize Google Cast SDK & HTMLMediaElement Remote Playback
+  useEffect(() => {
+    // 1. Check Native Remote Playback API
+    const video = videoRef.current;
+    if (video && 'remote' in video && (video as any).remote) {
+      const remote = (video as any).remote;
+
+      const handleConnecting = () => {
+        setIsCastConnecting(true);
+        setIsCasting(false);
+      };
+      const handleConnect = () => {
+        setIsCastConnecting(false);
+        setIsCasting(true);
+      };
+      const handleDisconnect = () => {
+        setIsCastConnecting(false);
+        setIsCasting(false);
+      };
+
+      remote.addEventListener('connecting', handleConnecting);
+      remote.addEventListener('connect', handleConnect);
+      remote.addEventListener('disconnect', handleDisconnect);
+
+      if (remote.watchAvailability) {
+        remote
+          .watchAvailability((available: boolean) => {
+            if (available) setIsCastAvailable(true);
+          })
+          .catch(() => {
+            setIsCastAvailable(true);
+          });
+      } else {
+        setIsCastAvailable(true);
+      }
+    }
+
+    // 2. Initialize Google Cast Framework
+    const initCastFramework = () => {
+      try {
+        if (typeof window === 'undefined' || !(window as any).cast?.framework) return;
+        const castContext = (window as any).cast.framework.CastContext.getInstance();
+        castContext.setOptions({
+          receiverApplicationId: (window as any).chrome?.cast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID || 'CC1AD845',
+          autoJoinPolicy: (window as any).chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED,
+        });
+
+        const CastState = (window as any).cast.framework.CastState;
+        const currentCastState = castContext.getCastState();
+        if (currentCastState && currentCastState !== CastState.NO_DEVICES_AVAILABLE) {
+          setIsCastAvailable(true);
+        }
+        if (currentCastState === CastState.CONNECTED) {
+          setIsCasting(true);
+          const dev = castContext.getCurrentSession()?.getCastDevice()?.friendlyName;
+          if (dev) setCastDeviceName(dev);
+        }
+
+        castContext.addEventListener(
+          (window as any).cast.framework.CastContextEventType.CAST_STATE_CHANGED,
+          (event: any) => {
+            if (event.castState === CastState.CONNECTED) {
+              setIsCasting(true);
+              setIsCastConnecting(false);
+            } else if (event.castState === CastState.CONNECTING) {
+              setIsCastConnecting(true);
+            } else {
+              setIsCasting(false);
+              setIsCastConnecting(false);
+            }
+            if (event.castState !== CastState.NO_DEVICES_AVAILABLE) {
+              setIsCastAvailable(true);
+            }
+          }
+        );
+
+        castContext.addEventListener(
+          (window as any).cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
+          (event: any) => {
+            const SessionState = (window as any).cast.framework.SessionState;
+            if (
+              event.sessionState === SessionState.SESSION_STARTED ||
+              event.sessionState === SessionState.SESSION_RESUMED
+            ) {
+              loadCastMedia();
+            } else if (event.sessionState === SessionState.SESSION_ENDED) {
+              setIsCasting(false);
+              setCastDeviceName('');
+            }
+          }
+        );
+      } catch (err) {
+        console.warn('Cast framework initialization error:', err);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      if ((window as any).cast?.framework) {
+        initCastFramework();
+      } else {
+        const prevOnGCast = (window as any).__onGCastApiAvailable;
+        (window as any).__onGCastApiAvailable = (isAvailable: boolean) => {
+          if (prevOnGCast) prevOnGCast(isAvailable);
+          if (isAvailable) initCastFramework();
+        };
+      }
+    }
+  }, [loadCastMedia]);
+
+  // Google Cast receiver position polling & playback state sync
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isCasting) {
+      interval = setInterval(() => {
+        if (typeof window !== 'undefined' && (window as any).cast?.framework) {
+          try {
+            const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+            const media = session?.getMediaSession();
+            if (media) {
+              const estimatedTime = media.getEstimatedTime();
+              if (typeof estimatedTime === 'number' && !isScrubbing && estimatedTime > 0) {
+                setCurrentTime(estimatedTime);
+              }
+              const playerState = media.playerState;
+              if (playerState === 'PLAYING') {
+                setIsPlaying(true);
+              } else if (playerState === 'PAUSED') {
+                setIsPlaying(false);
+              }
+            }
+          } catch (e) {}
+        }
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isCasting, isScrubbing]);
+
+  // Auto-reload on Chromecast when episode changes while casting
+  useEffect(() => {
+    if (isCasting && streamUrl) {
+      loadCastMedia();
+    }
+  }, [streamUrl, isCasting, loadCastMedia]);
 
   // Resolve known media duration in seconds
   const knownDurationSeconds =
@@ -337,11 +673,11 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     setShowControls(true);
     if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
     hideTimeoutRef.current = setTimeout(() => {
-      if (isPlaying && !showSubtitleMenu) {
+      if (isPlaying && !showSubtitleMenu && !isCasting) {
         setShowControls(false);
       }
     }, 3500);
-  }, [isPlaying, showSubtitleMenu]);
+  }, [isPlaying, showSubtitleMenu, isCasting]);
 
   useEffect(() => {
     resetControlsTimer();
@@ -490,6 +826,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       : currentTime > 0 ? currentTime : (knownDurationSeconds || 0);
 
   const togglePlay = () => {
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+        const media = session?.getMediaSession();
+        if (media) {
+          if (isPlaying) {
+            media.pause(null, () => setIsPlaying(false), console.error);
+          } else {
+            media.play(null, () => setIsPlaying(true), console.error);
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Cast play/pause error:', err);
+      }
+    }
     if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
@@ -503,9 +855,24 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   };
 
   const seek = (seconds: number) => {
+    const targetDuration = duration > 0 ? duration : (knownDurationSeconds || videoRef.current?.duration || 100);
+    const newTime = Math.max(0, Math.min(currentTime + seconds, targetDuration));
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+        const media = session?.getMediaSession();
+        if (media) {
+          const seekReq = new (window as any).chrome.cast.media.SeekRequest();
+          seekReq.currentTime = newTime;
+          media.seek(seekReq, () => setCurrentTime(newTime), console.error);
+          resetControlsTimer();
+          return;
+        }
+      } catch (err) {
+        console.warn('Cast seek error:', err);
+      }
+    }
     if (!videoRef.current) return;
-    const targetDuration = duration > 0 ? duration : (knownDurationSeconds || videoRef.current.duration || 100);
-    const newTime = Math.max(0, Math.min(videoRef.current.currentTime + seconds, targetDuration));
     videoRef.current.currentTime = newTime;
     setCurrentTime(newTime);
     resetControlsTimer();
@@ -520,6 +887,21 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const handleScrubEnd = () => {
     setIsScrubbing(false);
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+        const media = session?.getMediaSession();
+        if (media) {
+          const seekReq = new (window as any).chrome.cast.media.SeekRequest();
+          seekReq.currentTime = currentTime;
+          media.seek(seekReq, () => {}, console.error);
+          resetControlsTimer();
+          return;
+        }
+      } catch (err) {
+        console.warn('Cast scrub seek error:', err);
+      }
+    }
     if (videoRef.current) {
       videoRef.current.currentTime = currentTime;
     }
@@ -530,6 +912,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     const newVol = Number(e.target.value);
     setVolume(newVol);
     setIsMuted(newVol === 0);
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const castContext = (window as any).cast.framework.CastContext.getInstance();
+        castContext.setVolumeLevel(newVol);
+      } catch (e) {}
+    }
     if (videoRef.current) {
       videoRef.current.volume = newVol;
       videoRef.current.muted = newVol === 0;
@@ -537,10 +925,17 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   };
 
   const toggleMute = () => {
-    if (!videoRef.current) return;
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
-    videoRef.current.muted = nextMuted;
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const castContext = (window as any).cast.framework.CastContext.getInstance();
+        castContext.setMuted(nextMuted);
+      } catch (e) {}
+    }
+    if (videoRef.current) {
+      videoRef.current.muted = nextMuted;
+    }
   };
 
   const toggleFullscreen = () => {
@@ -580,6 +975,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   }, [activePlayableId, item, isPlaying]);
 
   const handleRestart = () => {
+    if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
+      try {
+        const session = (window as any).cast.framework.CastContext.getInstance().getCurrentSession();
+        const media = session?.getMediaSession();
+        if (media) {
+          const seekReq = new (window as any).chrome.cast.media.SeekRequest();
+          seekReq.currentTime = 0;
+          media.seek(seekReq, () => {
+            setCurrentTime(0);
+            setIsPlaying(true);
+          }, console.error);
+        }
+      } catch (err) {
+        console.warn('Cast restart error:', err);
+      }
+    }
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
@@ -618,6 +1029,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const handleClose = () => {
     reportProgress(true);
+    if (isCasting) {
+      handleDisconnectCast();
+    }
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -659,10 +1073,6 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
-
-  const currentTitle = activeEpisode
-    ? `${item.title}: S${activeEpisode.seasonNumber}E${activeEpisode.episodeNumber} - ${activeEpisode.name}`
-    : item.title;
 
   return (
     <div
@@ -712,7 +1122,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         </div>
       )}
 
-      {/* HTML5 Stream Player */}
+      {/* HTML5 Stream Player & PC Static Backdrop Preview */}
       <div className="relative w-full h-full flex items-center justify-center" onClick={togglePlay}>
         <video
           ref={videoRef}
@@ -720,7 +1130,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onError={handlePlaybackError}
-          className="w-full h-full object-contain cursor-pointer"
+          className={isCasting ? 'hidden' : 'w-full h-full object-contain cursor-pointer'}
           playsInline
         >
           {subtitles.map((sub) => (
@@ -735,11 +1145,197 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             />
           ))}
         </video>
+
+        {/* Static Backdrop Preview when Casting on PC */}
+        {isCasting && (
+          <div className="hidden md:flex absolute inset-0 w-full h-full items-center justify-center overflow-hidden">
+            <img
+              src={activeEpisode?.thumbnailUrl || item.backdropUrl || item.posterUrl}
+              alt={currentTitle}
+              className="w-full h-full object-cover opacity-50 filter blur-sm scale-105 pointer-events-none"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/80 pointer-events-none" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 space-y-4 z-10 pointer-events-auto">
+              <div className="w-20 h-20 rounded-full bg-red-600/20 border-2 border-red-500/60 flex items-center justify-center text-red-500 animate-pulse shadow-2xl">
+                <Cast size={40} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-xl sm:text-2xl font-bold text-white drop-shadow">
+                  Casting to {castDeviceName || 'Chromecast'}
+                </h3>
+                <p className="text-xs sm:text-sm text-neutral-400 max-w-md">
+                  {currentTitle} is playing on your TV screen.
+                </p>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDisconnectCast();
+                }}
+                className="px-4 py-1.5 rounded-full bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors shadow"
+              >
+                Disconnect Cast
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Web Player Overlay Controls */}
+      {/* Mobile Cast Remote UI (Samsung S26 / Mobile phones) */}
+      {isCasting && (
+        <div className="flex md:hidden absolute inset-0 flex-col justify-between p-4 pb-8 z-40 bg-neutral-950/95 overflow-y-auto pointer-events-auto">
+          {/* Top Bar: Back button, Casting status badge, Disconnect */}
+          <div className="flex items-center justify-between pt-2">
+            <button
+              onClick={handleClose}
+              className="p-2 -ml-2 rounded-full hover:bg-white/10 text-white"
+              title="Close"
+            >
+              <ArrowLeft size={24} />
+            </button>
+
+            <div className="flex items-center space-x-1.5 bg-red-950/80 border border-red-800/80 px-2.5 py-1 rounded-full text-xs text-red-300 font-medium shadow">
+              <Cast size={13} className="text-red-400" />
+              <span className="truncate max-w-[130px]">{castDeviceName || 'Chromecast'}</span>
+            </div>
+
+            <button
+              onClick={handleDisconnectCast}
+              className="text-xs text-neutral-300 hover:text-white px-2.5 py-1 rounded border border-neutral-700 bg-neutral-900 active:bg-neutral-800"
+            >
+              Disconnect
+            </button>
+          </div>
+
+          {/* Center: Static Artwork Preview & Metadata */}
+          <div className="flex flex-col items-center justify-center my-auto space-y-4 px-2 py-4">
+            <div className="relative w-44 aspect-[2/3] sm:w-52 rounded-xl overflow-hidden shadow-2xl border border-neutral-800">
+              <img
+                src={activeEpisode?.thumbnailUrl || item.posterUrl || item.backdropUrl}
+                alt={currentTitle}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end p-3">
+                <div className="flex items-center space-x-1 text-[11px] text-red-400 font-semibold">
+                  <Cast size={12} />
+                  <span>Playing on TV</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center space-y-1 max-w-xs">
+              <h2 className="text-lg font-bold text-white line-clamp-1">{item.title}</h2>
+              {activeEpisode && (
+                <p className="text-xs text-neutral-400 font-medium line-clamp-1">
+                  S{activeEpisode.seasonNumber}:E{activeEpisode.episodeNumber} • {activeEpisode.name}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom: Timeline Scrubber + Controls + Settings */}
+          <div className="space-y-4">
+            {/* Timeline Scrubber */}
+            <div className="space-y-1">
+              <input
+                type="range"
+                min={0}
+                max={displayDuration || 100}
+                step={0.5}
+                value={currentTime}
+                onChange={handleScrubChange}
+                onMouseUp={handleScrubEnd}
+                onTouchEnd={handleScrubEnd}
+                className="w-full h-1.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
+              />
+              <div className="flex justify-between text-xs font-mono text-neutral-400">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(displayDuration)}</span>
+              </div>
+            </div>
+
+            {/* Primary Remote Touch Buttons */}
+            <div className="flex items-center justify-center space-x-5 sm:space-x-7">
+              <button
+                onClick={handleRestart}
+                className="p-2 text-neutral-400 hover:text-white active:scale-95 transition-all flex flex-col items-center"
+                title="Restart from 0:00"
+              >
+                <RotateCcw size={20} />
+                <span className="text-[10px] mt-0.5">Restart</span>
+              </button>
+
+              <button
+                onClick={() => seek(-10)}
+                className="p-2.5 rounded-full bg-neutral-900 border border-neutral-800 text-white hover:bg-neutral-800 active:scale-95 transition-all"
+                title="Rewind 10s"
+              >
+                <RotateCcw size={22} />
+              </button>
+
+              <button
+                onClick={togglePlay}
+                className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center active:scale-90 transition-all shadow-xl"
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? <Pause size={28} /> : <Play size={28} className="fill-white ml-0.5" />}
+              </button>
+
+              <button
+                onClick={() => seek(10)}
+                className="p-2.5 rounded-full bg-neutral-900 border border-neutral-800 text-white hover:bg-neutral-800 active:scale-95 transition-all"
+                title="Forward 10s"
+              >
+                <RotateCw size={22} />
+              </button>
+
+              {(item.type === 'Series' || onNextEpisode || nextEpisode) && (
+                <button
+                  onClick={handleNextEpisode}
+                  disabled={!nextEpisode && !onNextEpisode}
+                  className={`p-2 transition-all active:scale-95 flex flex-col items-center ${
+                    nextEpisode || onNextEpisode ? 'text-neutral-400 hover:text-white' : 'text-neutral-600 opacity-40'
+                  }`}
+                  title="Next Episode"
+                >
+                  <SkipForward size={20} />
+                  <span className="text-[10px] mt-0.5">Next</span>
+                </button>
+              )}
+            </div>
+
+            {/* Subtitles & Audio bar */}
+            <div className="flex items-center justify-between pt-2 border-t border-neutral-800/80 px-1">
+              <button
+                onClick={() => setShowSubtitleMenu(true)}
+                className={`flex items-center space-x-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                  selectedSubtitleId
+                    ? 'bg-red-950/80 border-red-700 text-red-400'
+                    : 'bg-neutral-900 border-neutral-800 text-neutral-300'
+                }`}
+              >
+                <Subtitles size={14} />
+                <span>
+                  Subtitles:{' '}
+                  {selectedSubtitleId ? subtitles.find((s) => s.id === selectedSubtitleId)?.title || 'On' : 'Off'}
+                </span>
+              </button>
+
+              <button
+                onClick={toggleMute}
+                className="p-2 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Web Player Overlay Controls (Desktop / Standard View) */}
       <div
-        className={`absolute inset-0 pointer-events-none transition-opacity duration-300 flex flex-col justify-between ${
+        className={`${isCasting ? 'hidden md:flex' : 'flex'} absolute inset-0 pointer-events-none transition-opacity duration-300 flex-col justify-between ${
           showControls ? 'opacity-100' : 'opacity-0'
         }`}
       >
@@ -878,85 +1474,49 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               {currentTitle}
             </div>
 
-            {/* Right: Subtitles, Next Episode, Fullscreen */}
+            {/* Right: Subtitles, Cast, Restart, Next Episode, Fullscreen */}
             <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-5 relative shrink-0">
-              {/* Subtitles Button & Popover */}
-              <div className="relative">
+              {/* Subtitles Button */}
+              <button
+                onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                className={`transition-colors p-1 rounded hover:text-white ${
+                  selectedSubtitleId ? 'text-red-500' : 'text-neutral-300 hover:text-white'
+                }`}
+                title="Subtitles (C)"
+              >
+                <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+
+              {/* Cast to Chromecast Button */}
+              <div className="relative flex items-center">
                 <button
-                  onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-                  className={`transition-colors p-1 rounded hover:text-white ${
-                    selectedSubtitleId ? 'text-red-500' : 'text-neutral-300 hover:text-white'
+                  onClick={handleCastClick}
+                  className={`p-1 rounded transition-colors relative flex items-center justify-center ${
+                    isCasting
+                      ? 'text-red-500 hover:text-red-400'
+                      : isCastConnecting
+                      ? 'text-amber-400 animate-pulse'
+                      : 'text-neutral-300 hover:text-white'
                   }`}
-                  title="Subtitles (C)"
+                  title={
+                    isCasting
+                      ? `Casting to ${castDeviceName || 'Chromecast'} (Click to disconnect)`
+                      : isCastConnecting
+                      ? 'Connecting to Chromecast...'
+                      : 'Cast to Chromecast'
+                  }
+                  aria-label="Cast to Chromecast"
                 >
-                  <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <Cast className="w-4 h-4 sm:w-5 sm:h-5" />
+                  {isCasting && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-600 rounded-full animate-ping" />
+                  )}
+                  {typeof window !== 'undefined' && Boolean((window as any).cast?.framework) && (
+                    React.createElement('google-cast-launcher', {
+                      className: 'absolute inset-0 w-full h-full opacity-0 cursor-pointer pointer-events-auto',
+                    })
+                  )}
                 </button>
-
-                {/* Subtitles Selection Popup Menu */}
-                {showSubtitleMenu && (
-                  <div
-                    className="absolute right-0 bottom-10 sm:bottom-12 bg-neutral-900/95 border border-neutral-700/80 rounded-lg shadow-2xl p-3 min-w-[200px] sm:min-w-[240px] max-h-[50vh] sm:max-h-[300px] overflow-y-auto z-50 animate-fade-in backdrop-blur-md"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2 px-2 flex items-center justify-between">
-                      <span>Subtitles</span>
-                      <button
-                        onClick={() => setShowSubtitleMenu(false)}
-                        className="hover:text-white text-neutral-400 transition-colors"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-
-                    <div className="space-y-1">
-                      <button
-                        onClick={() => {
-                          setSelectedSubtitleId(null);
-                          setShowSubtitleMenu(false);
-                        }}
-                        className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between transition-colors ${
-                          selectedSubtitleId === null
-                            ? 'bg-red-600/20 text-red-500 font-semibold'
-                            : 'text-neutral-300 hover:bg-neutral-800'
-                        }`}
-                      >
-                        <span>Off</span>
-                        {selectedSubtitleId === null && <Check size={16} />}
-                      </button>
-
-                      {subtitles.map((sub) => (
-                        <button
-                          key={sub.id}
-                          onClick={() => {
-                            setSelectedSubtitleId(sub.id);
-                            setShowSubtitleMenu(false);
-                          }}
-                          className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between transition-colors ${
-                            selectedSubtitleId === sub.id
-                              ? 'bg-red-600/20 text-red-500 font-semibold'
-                              : 'text-neutral-300 hover:bg-neutral-800'
-                          }`}
-                        >
-                          <span className="truncate pr-2">{sub.title}</span>
-                          {selectedSubtitleId === sub.id && <Check size={16} />}
-                        </button>
-                      ))}
-
-                      {subtitles.length === 0 && !isLoadingSubtitles && (
-                        <div className="text-xs text-neutral-500 px-3 py-2 italic">
-                          No subtitle tracks available
-                        </div>
-                      )}
-
-                      {isLoadingSubtitles && (
-                        <div className="text-xs text-neutral-400 px-3 py-2 flex items-center space-x-2">
-                          <div className="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                          <span>Loading tracks...</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* Restart Episode / Movie Button */}
@@ -997,6 +1557,80 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Universal Subtitles Selection Sheet / Modal (Responsive: Mobile Bottom Sheet + Desktop Centered) */}
+      {showSubtitleMenu && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setShowSubtitleMenu(false)}
+        >
+          <div
+            className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-xl p-5 space-y-4 max-h-[75vh] overflow-y-auto animate-fade-in shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+              <div className="flex items-center space-x-2 text-white font-bold text-base">
+                <Subtitles size={18} className="text-red-500" />
+                <span>Subtitles & Audio</span>
+              </div>
+              <button
+                onClick={() => setShowSubtitleMenu(false)}
+                className="p-1.5 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <button
+                onClick={() => {
+                  changeSubtitleTrack(null);
+                  setShowSubtitleMenu(false);
+                }}
+                className={`w-full text-left px-4 py-3 rounded-lg text-sm flex items-center justify-between transition-colors ${
+                  selectedSubtitleId === null
+                    ? 'bg-red-600/20 text-red-400 font-bold border border-red-600/40'
+                    : 'text-neutral-300 hover:bg-neutral-800 border border-transparent'
+                }`}
+              >
+                <span>Off</span>
+                {selectedSubtitleId === null && <Check size={18} />}
+              </button>
+
+              {subtitles.map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => {
+                    changeSubtitleTrack(sub.id);
+                    setShowSubtitleMenu(false);
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-lg text-sm flex items-center justify-between transition-colors ${
+                    selectedSubtitleId === sub.id
+                      ? 'bg-red-600/20 text-red-400 font-bold border border-red-600/40'
+                      : 'text-neutral-300 hover:bg-neutral-800 border border-transparent'
+                  }`}
+                >
+                  <span className="truncate pr-2">{sub.title}</span>
+                  {selectedSubtitleId === sub.id && <Check size={18} />}
+                </button>
+              ))}
+
+              {subtitles.length === 0 && !isLoadingSubtitles && (
+                <div className="text-sm text-neutral-500 py-4 text-center italic">
+                  No subtitle tracks available for this title
+                </div>
+              )}
+
+              {isLoadingSubtitles && (
+                <div className="py-4 flex items-center justify-center space-x-2 text-neutral-400 text-sm">
+                  <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                  <span>Loading subtitle tracks...</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
