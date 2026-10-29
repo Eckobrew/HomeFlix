@@ -104,29 +104,19 @@ export async function GET(
         let seerrCategoryItems: MediaItem[] = [];
         if (seerrConfigured) {
           try {
-            const endpoint = isMovies
-              ? `/api/v1/discover/movies?genre=${cat.seerrGenreId}`
-              : `/api/v1/discover/tv?genre=${cat.seerrGenreId}`;
+            const rawSeerr = await seerr.getDiscoverByGenre(
+              cat.seerrGenreId,
+              isMovies ? 'movie' : 'tv'
+            );
 
-            const seerrRes = await fetch(`${(seerr as any).url}${endpoint}`, {
-              headers: (seerr as any).getHeaders(),
-              next: { revalidate: 300 },
-            });
-
-            if (seerrRes.ok) {
-              const seerrData = await seerrRes.json();
-              const results = seerrData.results || [];
-              const mappedSeerr = results
-                .map((r: any) => (seerr as any).mapSeerrItem(r, isMovies ? 'movie' : 'tv'))
-                .filter((r: MediaItem) => {
-                  // Deduplicate: exclude if already on Jellyfin
-                  if (r.tmdbId && jfTmdbSet.has(r.tmdbId)) return false;
-                  if (jfTitleSet.has(r.title.toLowerCase().trim())) return false;
-                  return true;
-                });
-
-              seerrCategoryItems = mappedSeerr.slice(0, 15);
-            }
+            // Deduplicate: exclude if already on Jellyfin
+            seerrCategoryItems = rawSeerr
+              .filter((r) => {
+                if (r.tmdbId && jfTmdbSet.has(r.tmdbId)) return false;
+                if (jfTitleSet.has(r.title.toLowerCase().trim())) return false;
+                return true;
+              })
+              .slice(0, 15);
           } catch (e) {
             console.warn(`Error fetching Seerr category ${cat.title}:`, e);
           }
