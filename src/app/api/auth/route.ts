@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
     if (action === 'logout') {
       const response = NextResponse.json({ success: true, message: 'Logged out' });
       response.cookies.delete(SESSION_COOKIE_NAME);
+      response.cookies.delete('homeflix_profile_id');
       return response;
     }
 
@@ -145,6 +146,14 @@ export async function POST(request: NextRequest) {
 
     const encodedSession = Buffer.from(JSON.stringify(sessionPayload)).toString('base64');
 
+    // Ensure profile exists in profiles.json for this Jellyfin user
+    try {
+      const { importProfilesFromJellyfin } = await import('@/lib/profiles');
+      await importProfilesFromJellyfin([user.Id]);
+    } catch (e) {
+      console.warn('Failed auto-importing profile on external login:', e);
+    }
+
     const response = NextResponse.json({
       success: true,
       user: {
@@ -156,6 +165,15 @@ export async function POST(request: NextRequest) {
     // 30 days session
     response.cookies.set(SESSION_COOKIE_NAME, encodedSession, {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60,
+    });
+
+    // Automatically lock homeflix_profile_id to the logged-in user
+    response.cookies.set('homeflix_profile_id', user.Id, {
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',

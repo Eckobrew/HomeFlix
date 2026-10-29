@@ -7,6 +7,7 @@ import {
   importProfilesFromJellyfin,
 } from '@/lib/profiles';
 import { getServerConfig } from '@/lib/config';
+import { isRequestLocalOrTailscale } from '@/lib/network';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -18,6 +19,52 @@ export async function GET(request: NextRequest) {
     const cookieProfileId = request.cookies.get('homeflix_profile_id')?.value;
     const includeAvailable = request.nextUrl.searchParams.get('includeAvailable') === 'true';
 
+    const netCheck = isRequestLocalOrTailscale(request);
+    const sessionCookie = request.cookies.get('homeflix_session')?.value;
+    let sessionUser: { id: string; name: string } | null = null;
+    if (sessionCookie) {
+      try {
+        sessionUser = JSON.parse(Buffer.from(sessionCookie, 'base64').toString('utf-8'));
+      } catch {}
+    }
+
+    // External login: lock directly to the authenticated Jellyfin user with no switching
+    if (!netCheck.isLocalOrTailscale) {
+      let externalProfile = profiles.find(
+        (p) => p.id === sessionUser?.id || p.jellyfinUserId === sessionUser?.id
+      );
+
+      if (!externalProfile && sessionUser?.id) {
+        const imported = await importProfilesFromJellyfin([sessionUser.id]);
+        externalProfile = imported.find((p) => p.id === sessionUser?.id);
+      }
+
+      const activeList = externalProfile ? [externalProfile] : [];
+      const activeId = externalProfile?.id || sessionUser?.id || '';
+
+      const response = NextResponse.json({
+        profiles: activeList,
+        activeProfileId: activeId,
+        needsSetup: false,
+        canSwitchProfile: false,
+        isExternal: true,
+        availableJellyfinUsers: [],
+      });
+
+      if (activeId) {
+        response.cookies.set({
+          name: 'homeflix_profile_id',
+          value: activeId,
+          path: '/',
+          maxAge: 31536000,
+          sameSite: 'lax',
+        });
+      }
+
+      return response;
+    }
+
+    // Internal / Tailscale connections: full decoupled profile switcher behavior
     const needsSetup = profiles.length === 0;
 
     let availableJellyfinUsers: any[] = [];
@@ -39,6 +86,8 @@ export async function GET(request: NextRequest) {
       profiles,
       activeProfileId,
       needsSetup,
+      canSwitchProfile: true,
+      isExternal: false,
       availableJellyfinUsers,
     });
 
@@ -61,6 +110,14 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const netCheck = isRequestLocalOrTailscale(request);
+    if (!netCheck.isLocalOrTailscale) {
+      return NextResponse.json(
+        { error: 'Profile switching and management is disabled for external sessions' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { action = 'select', profileId, name, paletteIndex, userIds, userId } = body;
 

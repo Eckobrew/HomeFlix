@@ -15,7 +15,7 @@ import { InitialSetupModal } from '@/components/InitialSetupModal';
 import { AuthModal } from '@/components/AuthModal';
 
 export default function Home() {
-  const { activeProfile } = useProfile();
+  const { activeProfile, refreshProfiles } = useProfile();
   const [hero, setHero] = useState<MediaItem | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const [sections, setSections] = useState<MediaRowSection[]>([]);
@@ -74,7 +74,9 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'logout' }),
       });
-      checkAuth();
+      await checkAuth();
+      await refreshProfiles();
+      loadHomeData();
     } catch (e) {
       console.error('Logout failed:', e);
     }
@@ -478,6 +480,7 @@ export default function Home() {
           appName={serverConfig.appName}
           onSuccess={() => {
             checkAuth();
+            refreshProfiles();
             loadHomeData();
           }}
         />

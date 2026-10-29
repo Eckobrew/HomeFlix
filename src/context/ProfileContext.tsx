@@ -9,6 +9,8 @@ interface ProfileContextType {
   isLoadingProfiles: boolean;
   isSelectorOpen: boolean;
   needsSetup: boolean;
+  canSwitchProfile: boolean;
+  isExternal: boolean;
   availableJellyfinUsers: UserProfile[];
   openSelector: () => void;
   closeSelector: () => void;
@@ -28,6 +30,8 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isLoadingProfiles, setIsLoadingProfiles] = useState<boolean>(true);
   const [isSelectorOpen, setIsSelectorOpen] = useState<boolean>(false);
   const [needsSetup, setNeedsSetup] = useState<boolean>(false);
+  const [canSwitchProfile, setCanSwitchProfile] = useState<boolean>(true);
+  const [isExternal, setIsExternal] = useState<boolean>(false);
   const [availableJellyfinUsers, setAvailableJellyfinUsers] = useState<UserProfile[]>([]);
 
   const fetchProfiles = useCallback(async () => {
@@ -37,12 +41,19 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (res.ok) {
         const data = await res.json();
         const loadedProfiles: UserProfile[] = data.profiles || [];
+        const isExt = Boolean(data.isExternal);
+        const canSwitch = data.canSwitchProfile !== false && !isExt;
+
         setProfiles(loadedProfiles);
-        setNeedsSetup(Boolean(data.needsSetup));
+        setNeedsSetup(Boolean(data.needsSetup) && !isExt);
+        setCanSwitchProfile(canSwitch);
+        setIsExternal(isExt);
         setAvailableJellyfinUsers(data.availableJellyfinUsers || []);
 
-        if (data.needsSetup) {
+        if (data.needsSetup && !isExt) {
           setIsSelectorOpen(true);
+        } else if (isExt) {
+          setIsSelectorOpen(false);
         }
 
         const activeId: string = data.activeProfileId;
@@ -225,7 +236,11 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return [];
   }, []);
 
-  const openSelector = useCallback(() => setIsSelectorOpen(true), []);
+  const openSelector = useCallback(() => {
+    if (!canSwitchProfile || isExternal) return;
+    setIsSelectorOpen(true);
+  }, [canSwitchProfile, isExternal]);
+
   const closeSelector = useCallback(() => {
     // Only allow closing if setup is already complete (at least 1 profile exists)
     if (!needsSetup && profiles.length > 0) {
@@ -241,6 +256,8 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isLoadingProfiles,
         isSelectorOpen,
         needsSetup,
+        canSwitchProfile,
+        isExternal,
         availableJellyfinUsers,
         openSelector,
         closeSelector,

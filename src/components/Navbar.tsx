@@ -35,7 +35,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement>(null);
 
-  const { profiles, activeProfile, openSelector, selectProfile } = useProfile();
+  const { profiles, activeProfile, openSelector, selectProfile, canSwitchProfile } = useProfile();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -260,76 +260,81 @@ export const Navbar: React.FC<NavbarProps> = ({
                         {activeProfile?.name || 'HomeFlix User'}
                       </p>
                       <p className="text-[11px] text-emerald-400 flex items-center space-x-1">
-                        <span>Active Profile</span>
+                        <span>{isExternal || !canSwitchProfile ? 'External Session' : 'Active Profile'}</span>
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Switch to other profiles */}
-                {profiles.filter((p) => p.id !== activeProfile?.id).length > 0 && (
-                  <div className="py-1">
-                    <div className="px-3 py-1 text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
-                      Switch Profile
-                    </div>
-                    {profiles
-                      .filter((p) => p.id !== activeProfile?.id)
-                      .map((profile) => (
-                        <button
-                          key={profile.id}
-                          onClick={() => {
-                            selectProfile(profile.id);
-                            setIsProfileMenuOpen(false);
-                          }}
-                          className="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-neutral-800/80 text-left transition-colors cursor-pointer group"
-                        >
-                          <div
-                            className={`w-6 h-6 rounded shrink-0 flex items-center justify-center font-bold text-[10px] text-white bg-gradient-to-br ${
-                              profile.avatarColor
-                            } group-hover:ring-1 group-hover:ring-white`}
-                          >
-                            {profile.avatarUrl ? (
-                              <img
-                                src={profile.avatarUrl}
-                                alt={profile.name}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <span>{profile.initials}</span>
-                            )}
-                          </div>
-                          <span className="text-neutral-300 group-hover:text-white capitalize text-xs truncate">
-                            {profile.name}
-                          </span>
-                        </button>
-                      ))}
-                  </div>
+                {/* Only internal / switch-enabled sessions can switch or manage profiles */}
+                {!isExternal && canSwitchProfile && (
+                  <>
+                    {/* Switch to other profiles */}
+                    {profiles.filter((p) => p.id !== activeProfile?.id).length > 0 && (
+                      <div className="py-1">
+                        <div className="px-3 py-1 text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                          Switch Profile
+                        </div>
+                        {profiles
+                          .filter((p) => p.id !== activeProfile?.id)
+                          .map((profile) => (
+                            <button
+                              key={profile.id}
+                              onClick={() => {
+                                selectProfile(profile.id);
+                                setIsProfileMenuOpen(false);
+                              }}
+                              className="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-neutral-800/80 text-left transition-colors cursor-pointer group"
+                            >
+                              <div
+                                className={`w-6 h-6 rounded shrink-0 flex items-center justify-center font-bold text-[10px] text-white bg-gradient-to-br ${
+                                  profile.avatarColor
+                                } group-hover:ring-1 group-hover:ring-white`}
+                              >
+                                {profile.avatarUrl ? (
+                                  <img
+                                    src={profile.avatarUrl}
+                                    alt={profile.name}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <span>{profile.initials}</span>
+                                )}
+                              </div>
+                              <span className="text-neutral-300 group-hover:text-white capitalize text-xs truncate">
+                                {profile.name}
+                              </span>
+                            </button>
+                          ))}
+                      </div>
+                    )}
+
+                    <div className="border-t border-neutral-800/80 my-1" />
+
+                    {/* Add Profile & Manage Profiles */}
+                    <button
+                      onClick={() => {
+                        openSelector();
+                        setIsProfileMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                    >
+                      <Plus size={15} className="text-neutral-400" />
+                      <span>Add Profile</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        openSelector();
+                        setIsProfileMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                    >
+                      <Users size={15} className="text-neutral-400" />
+                      <span>Who&apos;s watching?</span>
+                    </button>
+                  </>
                 )}
-
-                <div className="border-t border-neutral-800/80 my-1" />
-
-                {/* Add Profile & Manage Profiles */}
-                <button
-                  onClick={() => {
-                    openSelector();
-                    setIsProfileMenuOpen(false);
-                  }}
-                  className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
-                >
-                  <Plus size={15} className="text-neutral-400" />
-                  <span>Add Profile</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    openSelector();
-                    setIsProfileMenuOpen(false);
-                  }}
-                  className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
-                >
-                  <Users size={15} className="text-neutral-400" />
-                  <span>Who&apos;s watching?</span>
-                </button>
 
                 <div className="border-t border-neutral-800/80 my-1" />
 
