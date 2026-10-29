@@ -183,6 +183,16 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             </div>
           )}
 
+          {/* Watched Badge */}
+          {item.played && (
+            <div
+              className="absolute top-2 left-2 z-10 bg-emerald-600/95 text-white rounded-full p-0.5 shadow-md border border-emerald-400/30"
+              title="Watched"
+            >
+              <Check size={12} strokeWidth={3} />
+            </div>
+          )}
+
           {/* Status badge in top right corner if from Seerr */}
           {item.source === 'seerr' && (
             <div className="absolute top-2 right-2 z-10">

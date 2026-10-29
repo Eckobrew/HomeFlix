@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   Play,
@@ -65,6 +65,11 @@ export const MediaModal: React.FC<MediaModalProps> = ({
   );
   const seasons: Season[] = currentItem.seasons || [];
   const currentSeason = seasons[selectedSeasonIndex] || seasons[0];
+
+  const allEpisodes = useMemo(() => seasons.flatMap((s) => s.episodes || []), [seasons]);
+  const totalEpisodesCount = allEpisodes.length;
+  const watchedEpisodesCount = allEpisodes.filter((e) => e.played).length;
+  const inProgressEpisodesCount = allEpisodes.filter((e) => !e.played && e.progressPercent && e.progressPercent > 0).length;
 
   const handleRestart = () => {
     if (currentItem.type === 'Series') {
@@ -141,6 +146,29 @@ export const MediaModal: React.FC<MediaModalProps> = ({
             <h1 className="text-xl sm:text-3xl md:text-4xl font-black text-white drop-shadow-md leading-tight">
               {currentItem.title}
             </h1>
+
+            {/* In-Progress Watch Progress Bar */}
+            {hasResume && currentItem.progressPercent && currentItem.progressPercent > 0 && !currentItem.played && (
+              <div className="space-y-1 pt-0.5 max-w-xs sm:max-w-sm">
+                <div className="flex items-center justify-between text-xs text-neutral-300 font-medium">
+                  <span className="flex items-center space-x-1 text-red-400 font-semibold">
+                    <Clock size={12} />
+                    <span>In Progress ({currentItem.progressPercent}%)</span>
+                  </span>
+                  {currentItem.durationMinutes && (
+                    <span className="text-neutral-400 text-[11px]">
+                      {Math.max(1, Math.round(currentItem.durationMinutes * (1 - currentItem.progressPercent / 100)))}m left
+                    </span>
+                  )}
+                </div>
+                <div className="w-full h-1.5 bg-neutral-700/80 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-600 rounded-full transition-all duration-300"
+                    style={{ width: `${currentItem.progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center space-x-2 sm:space-x-3">
               {isAvailable ? (
@@ -221,6 +249,26 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                 <span className="border border-neutral-700 text-[10px] px-1 py-0.5 rounded font-mono text-neutral-400">
                   5.1 Audio
                 </span>
+
+                {/* Watched Status Badges */}
+                {currentItem.played && (
+                  <span className="flex items-center space-x-1 text-xs font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-700/80 px-2.5 py-0.5 rounded-full">
+                    <CheckCircle2 size={13} />
+                    <span>Watched</span>
+                  </span>
+                )}
+                {!currentItem.played && hasResume && currentItem.progressPercent && currentItem.progressPercent > 0 && (
+                  <span className="flex items-center space-x-1 text-xs font-semibold text-red-400 bg-red-950/70 border border-red-700/80 px-2.5 py-0.5 rounded-full">
+                    <Clock size={13} />
+                    <span>{currentItem.progressPercent}% Watched</span>
+                  </span>
+                )}
+                {currentItem.type === 'Series' && totalEpisodesCount > 0 && watchedEpisodesCount > 0 && (
+                  <span className="flex items-center space-x-1 text-xs font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-700/80 px-2.5 py-0.5 rounded-full">
+                    <CheckCircle2 size={13} />
+                    <span>{watchedEpisodesCount}/{totalEpisodesCount} Watched</span>
+                  </span>
+                )}
               </div>
 
               {/* Status Banner */}
@@ -290,7 +338,14 @@ export const MediaModal: React.FC<MediaModalProps> = ({
           {(seasons.length > 0 || currentItem.type === 'Series' || currentItem.type === 'Episode') && (
             <div className="pt-6 border-t border-neutral-800 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-bold text-white">Episodes</h3>
+                <div className="flex items-center space-x-3">
+                  <h3 className="text-xl font-bold text-white">Episodes</h3>
+                  {currentSeason?.episodes && currentSeason.episodes.length > 0 && (
+                    <span className="text-xs text-neutral-400 font-medium">
+                      ({currentSeason.episodes.filter((e) => e.played).length}/{currentSeason.episodes.length} watched)
+                    </span>
+                  )}
+                </div>
 
                 {/* Season Dropdown */}
                 {seasons.length > 1 && (
@@ -317,8 +372,8 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                       onClick={() => onPlay(currentItem, ep)}
                       className="flex items-center justify-between p-3 rounded-lg bg-neutral-900/60 hover:bg-neutral-800/80 cursor-pointer transition-colors border border-neutral-800/80 group"
                     >
-                      <div className="flex items-center space-x-4">
-                        <span className="text-base font-bold text-neutral-400 group-hover:text-white w-6 text-center">
+                      <div className="flex items-center space-x-4 min-w-0">
+                        <span className="text-base font-bold text-neutral-400 group-hover:text-white w-6 text-center shrink-0">
                           {ep.episodeNumber}
                         </span>
 
@@ -332,14 +387,43 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                           <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 flex items-center justify-center transition-colors">
                             <Play size={20} className="text-white fill-white opacity-80 group-hover:opacity-100 group-hover:scale-110 transition-all" />
                           </div>
+
+                          {/* Watched Badge on Thumbnail */}
+                          {ep.played && (
+                            <div className="absolute top-1.5 right-1.5 z-10 bg-emerald-600/95 text-white rounded-full p-0.5 shadow-md border border-emerald-400/40">
+                              <Check size={11} strokeWidth={3} />
+                            </div>
+                          )}
+
+                          {/* Progress bar across bottom of thumbnail for half-watched or watched */}
+                          {ep.played ? (
+                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500/90" />
+                          ) : ep.progressPercent && ep.progressPercent > 0 ? (
+                            <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-neutral-900/90 overflow-hidden">
+                              <div
+                                className="h-full bg-red-600 transition-all duration-300 shadow"
+                                style={{ width: `${ep.progressPercent}%` }}
+                              />
+                            </div>
+                          ) : null}
                         </div>
 
                         {/* Episode details */}
-                        <div className="space-y-1">
-                          <div className="flex items-center space-x-2">
-                            <h4 className="text-sm font-bold text-white group-hover:text-red-500 transition-colors">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-bold text-white group-hover:text-red-500 transition-colors truncate">
                               {ep.name}
                             </h4>
+                            {ep.played && (
+                              <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/70 border border-emerald-800/80 px-1.5 py-0.5 rounded">
+                                Watched
+                              </span>
+                            )}
+                            {!ep.played && ep.progressPercent && ep.progressPercent > 0 && (
+                              <span className="text-[10px] font-semibold text-red-400 bg-red-950/70 border border-red-800/80 px-1.5 py-0.5 rounded">
+                                {ep.progressPercent}% watched
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-neutral-400 line-clamp-2 max-w-lg">
                             {ep.overview}
@@ -348,6 +432,18 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                       </div>
 
                       <div className="flex items-center space-x-2 shrink-0 pl-2">
+                        {ep.played && (
+                          <span className="hidden sm:inline-flex items-center space-x-1 text-xs text-emerald-400 font-medium bg-emerald-950/40 border border-emerald-900 px-2 py-0.5 rounded">
+                            <Check size={12} strokeWidth={3} />
+                            <span>Watched</span>
+                          </span>
+                        )}
+                        {!ep.played && ep.progressPercent && ep.progressPercent > 0 && (
+                          <span className="hidden sm:inline-flex items-center space-x-1 text-xs text-red-400 font-medium bg-red-950/40 border border-red-900 px-2 py-0.5 rounded">
+                            <Clock size={12} />
+                            <span>{ep.progressPercent}%</span>
+                          </span>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

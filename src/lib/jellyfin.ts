@@ -390,6 +390,7 @@ export class JellyfinClient {
       source: 'jellyfin',
       jellyfinId: item.Id,
       status: 'available',
+      played: Boolean(item.UserData?.Played),
       playbackPositionTicks: playbackTicks,
       totalDurationTicks: totalTicks,
       progressPercent,
@@ -597,7 +598,7 @@ export class JellyfinClient {
       if (!data.Items || data.Items.length === 0) {
         // Fallback: Fetch all episodes directly for the series and group by ParentIndexNumber
         const allEpRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType`,
+          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         if (allEpRes.ok) {
@@ -607,6 +608,10 @@ export class JellyfinClient {
           for (const ep of epItems) {
             const sNum = ep.ParentIndexNumber || 1;
             if (!seasonMap.has(sNum)) seasonMap.set(sNum, []);
+            const epPlaybackTicks = ep.UserData?.PlaybackPositionTicks || 0;
+            const epTotalTicks = ep.RunTimeTicks || 0;
+            const epProgress = epTotalTicks > 0 ? Math.round((epPlaybackTicks / epTotalTicks) * 100) : 0;
+            const epPlayed = Boolean(ep.UserData?.Played);
             seasonMap.get(sNum)!.push({
               id: ep.Id,
               episodeNumber: ep.IndexNumber || 1,
@@ -615,6 +620,9 @@ export class JellyfinClient {
               overview: ep.Overview || 'No description available.',
               durationMinutes: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / (10000 * 1000 * 60)) : 45,
               totalDurationTicks: ep.RunTimeTicks,
+              playbackPositionTicks: epPlaybackTicks,
+              progressPercent: epProgress,
+              played: epPlayed,
               thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
               jellyfinId: ep.Id,
               videoStreamUrl: this.getStreamUrl(ep.Id),
@@ -636,7 +644,7 @@ export class JellyfinClient {
       for (const s of data.Items || []) {
         // Fetch episodes for season
         const epRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType`,
+          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType,UserData`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         let episodes: Episode[] = [];
@@ -644,18 +652,27 @@ export class JellyfinClient {
           const epData = await epRes.json();
           episodes = (epData.Items || [])
             .filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
-            .map((ep: JellyfinItem) => ({
-              id: ep.Id,
-              episodeNumber: ep.IndexNumber || 1,
-              seasonNumber: s.IndexNumber || 1,
-              name: ep.Name,
-              overview: ep.Overview || 'No description available.',
-              durationMinutes: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / (10000 * 1000 * 60)) : 45,
-              totalDurationTicks: ep.RunTimeTicks,
-              thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
-              jellyfinId: ep.Id,
-              videoStreamUrl: this.getStreamUrl(ep.Id),
-            }));
+            .map((ep: JellyfinItem) => {
+              const epPlaybackTicks = ep.UserData?.PlaybackPositionTicks || 0;
+              const epTotalTicks = ep.RunTimeTicks || 0;
+              const epProgress = epTotalTicks > 0 ? Math.round((epPlaybackTicks / epTotalTicks) * 100) : 0;
+              const epPlayed = Boolean(ep.UserData?.Played);
+              return {
+                id: ep.Id,
+                episodeNumber: ep.IndexNumber || 1,
+                seasonNumber: s.IndexNumber || 1,
+                name: ep.Name,
+                overview: ep.Overview || 'No description available.',
+                durationMinutes: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / (10000 * 1000 * 60)) : 45,
+                totalDurationTicks: ep.RunTimeTicks,
+                playbackPositionTicks: epPlaybackTicks,
+                progressPercent: epProgress,
+                played: epPlayed,
+                thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+                jellyfinId: ep.Id,
+                videoStreamUrl: this.getStreamUrl(ep.Id),
+              };
+            });
         }
 
         seasons.push({

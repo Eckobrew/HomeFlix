@@ -22,6 +22,8 @@ export interface Episode {
   thumbnailUrl: string;
   playbackPositionTicks?: number;
   totalDurationTicks?: number;
+  progressPercent?: number;
+  played?: boolean;
   jellyfinId?: string;
   videoStreamUrl?: string;
 }
@@ -63,6 +65,7 @@ export interface MediaItem {
   tmdbId?: number;
   playableEpisodeId?: string;
   status: AvailabilityStatus;
+  played?: boolean;
   playbackPositionTicks?: number;
   totalDurationTicks?: number;
   progressPercent?: number; // 0 - 100 for Continue Watching
