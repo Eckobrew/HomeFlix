@@ -553,6 +553,52 @@ export class JellyfinClient {
     };
   }
 
+  async getUserTopGenres(userId?: string): Promise<string[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const uid = userId || (await this.getFirstUserId());
+      if (!uid) return [];
+
+      const genreWeights: Record<string, number> = {};
+
+      // 1. Fetch Resume items (weight: 3)
+      const resumeRes = await fetch(
+        `${this.url}/UserItems/Resume?userId=${uid}&Limit=20&Fields=Genres`,
+        { headers: this.getHeaders(), next: { revalidate: 30 } }
+      );
+      if (resumeRes.ok) {
+        const resumeData = await resumeRes.json();
+        for (const item of resumeData.Items || []) {
+          for (const g of item.Genres || []) {
+            genreWeights[g] = (genreWeights[g] || 0) + 3;
+          }
+        }
+      }
+
+      // 2. Fetch Played / Watched items (weight: 1)
+      const playedRes = await fetch(
+        `${this.url}/Users/${uid}/Items?SortBy=DatePlayed&SortOrder=Descending&Filters=IsPlayed&Limit=30&Recursive=true&Fields=Genres`,
+        { headers: this.getHeaders(), next: { revalidate: 60 } }
+      );
+      if (playedRes.ok) {
+        const playedData = await playedRes.json();
+        for (const item of playedData.Items || []) {
+          for (const g of item.Genres || []) {
+            genreWeights[g] = (genreWeights[g] || 0) + 1;
+          }
+        }
+      }
+
+      // Sort by accumulated weight descending
+      return Object.entries(genreWeights)
+        .sort((a, b) => b[1] - a[1])
+        .map(([genre]) => genre);
+    } catch (e) {
+      console.error('Failed fetching user top genres from Jellyfin:', e);
+      return [];
+    }
+  }
+
   async getResumeItems(): Promise<MediaItem[]> {
     if (!this.isConfigured()) return [];
     try {

@@ -64,10 +64,34 @@ export async function GET(request: NextRequest) {
       },
     ];
 
+    const demoRequestSections: MediaRowSection[] = [
+      {
+        id: 'requests-recommended',
+        title: 'Recommended for You',
+        items: MOCK_CONTINUE_WATCHING,
+      },
+      {
+        id: 'requests-popular',
+        title: 'Popular Titles',
+        items: [...MOCK_RECENT_MOVIES, ...MOCK_RECENT_SERIES],
+      },
+      {
+        id: 'requests-top-movies',
+        title: 'Top Movies',
+        items: MOCK_RECENT_MOVIES,
+      },
+      {
+        id: 'requests-top-tv',
+        title: 'Top TV Shows',
+        items: MOCK_RECENT_SERIES,
+      },
+    ];
+
     return NextResponse.json({
       hero: MOCK_HERO_ITEM,
       heroItems: mockHeroItems,
       sections,
+      requestSections: demoRequestSections,
       isDemoMode: true,
       jellyfinConnected: false,
       seerrConnected: seerr.isConfigured(),
@@ -149,15 +173,65 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Try fetching trending from Seerr if configured
+    const requestSections: MediaRowSection[] = [];
+
+    // Comprehensive Request Content Page rows from Seerr
     if (seerr.isConfigured()) {
-      const trending = await seerr.getTrending();
-      if (trending.length > 0) {
-        sections.push({
-          id: 'trending-seerr',
-          title: 'Trending Worldwide (Seerr)',
-          items: trending,
-        });
+      try {
+        const topGenres = await jellyfin.getUserTopGenres(targetUserId);
+
+        const [recommended, trending, popularMovies, popularTv] = await Promise.all([
+          seerr.getRecommendationsForGenres(topGenres),
+          seerr.getTrending(),
+          seerr.getPopularMovies(),
+          seerr.getPopularTv(),
+        ]);
+
+        if (trending.length > 0) {
+          sections.push({
+            id: 'trending-seerr',
+            title: 'Trending Worldwide (Seerr)',
+            items: trending,
+          });
+        }
+
+        // Row 1: Recommended for You (based on profile's watched content)
+        if (recommended.length > 0) {
+          requestSections.push({
+            id: 'requests-recommended',
+            title: 'Recommended for You',
+            items: recommended,
+          });
+        }
+
+        // Row 2: Popular Titles (including both movies and shows)
+        if (trending.length > 0) {
+          requestSections.push({
+            id: 'requests-popular',
+            title: 'Popular Titles',
+            items: trending,
+          });
+        }
+
+        // Row 3: Top Movies
+        if (popularMovies.length > 0) {
+          requestSections.push({
+            id: 'requests-top-movies',
+            title: 'Top Movies',
+            items: popularMovies,
+          });
+        }
+
+        // Row 4: Top TV Shows
+        if (popularTv.length > 0) {
+          requestSections.push({
+            id: 'requests-top-tv',
+            title: 'Top TV Shows',
+            items: popularTv,
+          });
+        }
+      } catch (e) {
+        console.error('Failed fetching Seerr discovery rows:', e);
       }
     }
 
@@ -165,6 +239,7 @@ export async function GET(request: NextRequest) {
       hero: heroCandidate,
       heroItems: featuredHeroItems.length > 0 ? featuredHeroItems : [heroCandidate],
       sections,
+      requestSections,
       isDemoMode: false,
       jellyfinConnected: true,
       seerrConnected: seerr.isConfigured(),
@@ -177,6 +252,12 @@ export async function GET(request: NextRequest) {
       sections: [
         { id: 'continue-watching', title: 'Continue Watching', items: MOCK_CONTINUE_WATCHING },
         { id: 'recent-movies', title: 'Recently Added Movies', items: MOCK_RECENT_MOVIES },
+      ],
+      requestSections: [
+        { id: 'requests-recommended', title: 'Recommended for You', items: MOCK_CONTINUE_WATCHING },
+        { id: 'requests-popular', title: 'Popular Titles', items: [...MOCK_RECENT_MOVIES, ...MOCK_RECENT_SERIES] },
+        { id: 'requests-top-movies', title: 'Top Movies', items: MOCK_RECENT_MOVIES },
+        { id: 'requests-top-tv', title: 'Top TV Shows', items: MOCK_RECENT_SERIES },
       ],
       isDemoMode: true,
       error: 'Failed to fetch from Jellyfin, fallback to demo mode',

@@ -11,18 +11,21 @@ import { SearchOverlay } from '@/components/SearchOverlay';
 import { MediaItem, MediaRowSection, Episode } from '@/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
+import { InitialSetupModal } from '@/components/InitialSetupModal';
 
 export default function Home() {
   const { activeProfile } = useProfile();
   const [hero, setHero] = useState<MediaItem | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const [sections, setSections] = useState<MediaRowSection[]>([]);
+  const [requestSections, setRequestSections] = useState<MediaRowSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [jellyfinConnected, setJellyfinConnected] = useState(false);
   const [seerrConnected, setSeerrConnected] = useState(false);
   const [activeTab, setActiveTab] = useState('home');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isServerSetupOpen, setIsServerSetupOpen] = useState(false);
 
   // Modals & Overlays
   const [modalItem, setModalItem] = useState<MediaItem | null>(null);
@@ -50,6 +53,7 @@ export default function Home() {
         setHero(homeData.hero || null);
         setHeroItems(homeData.heroItems || (homeData.hero ? [homeData.hero] : []));
         setSections(homeData.sections || []);
+        setRequestSections(homeData.requestSections || []);
         setIsDemoMode(Boolean(homeData.isDemoMode));
         setJellyfinConnected(Boolean(homeData.jellyfinConnected));
         setSeerrConnected(Boolean(homeData.seerrConnected));
@@ -58,6 +62,9 @@ export default function Home() {
       if (configRes.ok) {
         const cfg = await configRes.json();
         setServerConfig(cfg);
+        if (cfg.isSetupNeeded) {
+          setIsServerSetupOpen(true);
+        }
       }
     } catch (err) {
       console.error('Failed to load home data:', err);
@@ -82,13 +89,82 @@ export default function Home() {
     return () => window.removeEventListener('homeflix-profile-changed', handleProfileChanged);
   }, [loadHomeData]);
 
-  // Handlers
+  // Deep linking and SEO routing on initial URL mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const searchParams = new URLSearchParams(window.location.search);
+
+    const tabParam = searchParams.get('tab');
+    if (tabParam && ['home', 'series', 'movies', 'requests'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+
+    const mediaParam = searchParams.get('media');
+    if (mediaParam) {
+      fetch(`/api/media/${mediaParam}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.item) {
+            setModalItem(data.item);
+          }
+        })
+        .catch(console.error);
+    }
+
+    const watchParam = searchParams.get('watch');
+    if (watchParam) {
+      fetch(`/api/media/${watchParam}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.item) {
+            setPlayingState({ item: data.item });
+          }
+        })
+        .catch(console.error);
+    }
+
+    if (searchParams.get('setup') === 'true') {
+      setIsServerSetupOpen(true);
+    }
+  }, []);
+
+  // Handlers with URL synchronization
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = tab === 'home' ? '/' : `/?tab=${tab}`;
+      window.history.pushState(null, '', url);
+    }
+  };
+
   const handlePlay = (item: MediaItem, episode?: Episode) => {
     setPlayingState({ item, episode });
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `/?watch=${item.id}`);
+    }
+  };
+
+  const handleClosePlayer = () => {
+    setPlayingState(null);
+    if (typeof window !== 'undefined') {
+      const url = activeTab === 'home' ? '/' : `/?tab=${activeTab}`;
+      window.history.replaceState(null, '', url);
+    }
   };
 
   const handleOpenModal = (item: MediaItem) => {
     setModalItem(item);
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', `/?media=${item.id}`);
+    }
+  };
+
+  const handleCloseModal = () => {
+    setModalItem(null);
+    if (typeof window !== 'undefined') {
+      const url = activeTab === 'home' ? '/' : `/?tab=${activeTab}`;
+      window.history.replaceState(null, '', url);
+    }
   };
 
   const handleRequest = (item: MediaItem) => {
@@ -136,13 +212,43 @@ export default function Home() {
     }
 
     if (activeTab === 'requests') {
-      const allRequested = sections
+      const res: MediaRowSection[] = [];
+
+      // 1. Recommended for You (based on profile's watched content)
+      const recommended = requestSections.find((s) => s.id === 'requests-recommended');
+      if (recommended && recommended.items.length > 0) {
+        res.push(recommended);
+      }
+
+      // 2. Popular Titles (including both movies and shows)
+      const popular = requestSections.find((s) => s.id === 'requests-popular') ||
+        sections.find((s) => s.id === 'trending-seerr');
+      if (popular && popular.items.length > 0) {
+        res.push({
+          ...popular,
+          id: 'requests-popular',
+          title: 'Popular Titles',
+        });
+      }
+
+      // 3. Top Movies
+      const topMovies = requestSections.find((s) => s.id === 'requests-top-movies');
+      if (topMovies && topMovies.items.length > 0) {
+        res.push(topMovies);
+      }
+
+      // 4. Top TV Shows
+      const topTv = requestSections.find((s) => s.id === 'requests-top-tv');
+      if (topTv && topTv.items.length > 0) {
+        res.push(topTv);
+      }
+
+      // Active / in-progress user downloads and requests
+      const allRequested = [...sections, ...requestSections]
         .flatMap((s) => s.items)
         .filter((i) => i.status === 'requested' || i.status === 'processing');
-
       const uniqueRequested = Array.from(new Map(allRequested.map((i) => [i.id, i])).values());
 
-      const res: MediaRowSection[] = [];
       if (uniqueRequested.length > 0) {
         res.push({
           id: 'my-requests',
@@ -151,25 +257,19 @@ export default function Home() {
         });
       }
 
-      // Add discoverable content to request from Seerr
-      const trendingSec = sections.find((s) => s.id === 'trending-seerr');
-      if (trendingSec) {
-        res.push({
-          id: 'trending-requests',
-          title: 'Popular Titles to Request on Seerr',
-          items: trendingSec.items,
-        });
-      }
-
       return res;
     }
 
     // Default 'home' tab: all sections
     return sections;
-  }, [sections, activeTab]);
+  }, [sections, requestSections, activeTab]);
 
   // Dynamic 5 rotating Hero Items for the active tab (random load + cycle)
   const displayedHeroItems = useMemo(() => {
+    if (activeTab === 'requests') {
+      const requestCandidates = displayedSections.flatMap((s) => s.items).filter((i) => i.backdropUrl);
+      if (requestCandidates.length > 0) return requestCandidates.slice(0, 5);
+    }
     if (activeTab === 'movies') {
       const movieCandidates = heroItems.filter((i) => i.type === 'Movie');
       if (movieCandidates.length > 0) return movieCandidates;
@@ -195,7 +295,8 @@ export default function Home() {
         jellyfinConnected={jellyfinConnected}
         seerrConnected={seerrConnected}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
+        onOpenServerSetup={() => setIsServerSetupOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -274,7 +375,7 @@ export default function Home() {
       {modalItem && (
         <MediaModal
           item={modalItem}
-          onClose={() => setModalItem(null)}
+          onClose={handleCloseModal}
           onPlay={handlePlay}
           onRequest={handleRequest}
         />
@@ -285,7 +386,7 @@ export default function Home() {
         <BuiltinPlayer
           item={playingState.item}
           episode={playingState.episode}
-          onClose={() => setPlayingState(null)}
+          onClose={handleClosePlayer}
           onNextEpisode={() => {
             if (playingState.item.type === 'Series') {
               const allEps = playingState.item.seasons?.flatMap((s) => s.episodes || []) || [];
@@ -310,6 +411,13 @@ export default function Home() {
           onSuccess={handleRequestSuccess}
         />
       )}
+
+      {/* Initial Setup & Server Settings Modal */}
+      <InitialSetupModal
+        isOpen={isServerSetupOpen}
+        onClose={() => setIsServerSetupOpen(false)}
+        onComplete={() => loadHomeData()}
+      />
     </main>
   );
 }

@@ -159,6 +159,164 @@ export class SeerrClient {
     }
   }
 
+  async getPopularMovies(page = 1): Promise<MediaItem[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const res = await fetch(`${this.url}/api/v1/discover/movies?page=${page}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: SeerrResult[] = (data.results || []).filter(
+        (r: SeerrResult) => r.mediaType === 'movie' || !r.mediaType
+      );
+      return results.map((r) => this.mapResult({ ...r, mediaType: 'movie' }));
+    } catch (e) {
+      console.error('Error fetching popular movies from Seerr:', e);
+      return [];
+    }
+  }
+
+  async getPopularTv(page = 1): Promise<MediaItem[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const res = await fetch(`${this.url}/api/v1/discover/tv?page=${page}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: SeerrResult[] = (data.results || []).filter(
+        (r: SeerrResult) => r.mediaType === 'tv' || !r.mediaType
+      );
+      return results.map((r) => this.mapResult({ ...r, mediaType: 'tv' }));
+    } catch (e) {
+      console.error('Error fetching popular TV from Seerr:', e);
+      return [];
+    }
+  }
+
+  async getDiscoverByGenre(genreId: number, mediaType: 'movie' | 'tv' = 'movie', page = 1): Promise<MediaItem[]> {
+    if (!this.isConfigured() || !genreId) return [];
+    try {
+      const endpoint = mediaType === 'tv' ? 'tv' : 'movies';
+      const res = await fetch(`${this.url}/api/v1/discover/${endpoint}?genre=${genreId}&page=${page}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 300 },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: SeerrResult[] = data.results || [];
+      return results.map((r) => this.mapResult({ ...r, mediaType }));
+    } catch (e) {
+      console.error(`Error discovering ${mediaType} with genre ${genreId}:`, e);
+      return [];
+    }
+  }
+
+  async getRecommendationsForGenres(genres: string[], limit = 20): Promise<MediaItem[]> {
+    if (!this.isConfigured()) return [];
+
+    const MOVIE_GENRES: Record<string, number> = {
+      action: 28,
+      adventure: 12,
+      animation: 16,
+      comedy: 35,
+      crime: 80,
+      documentary: 99,
+      drama: 18,
+      family: 10751,
+      fantasy: 14,
+      history: 36,
+      horror: 27,
+      music: 10402,
+      mystery: 9648,
+      romance: 10749,
+      'science fiction': 878,
+      'sci-fi': 878,
+      scifi: 878,
+      thriller: 53,
+      war: 10752,
+      western: 37,
+    };
+
+    const TV_GENRES: Record<string, number> = {
+      'action & adventure': 10759,
+      action: 10759,
+      adventure: 10759,
+      animation: 16,
+      comedy: 35,
+      crime: 80,
+      documentary: 99,
+      drama: 18,
+      family: 10751,
+      kids: 10762,
+      mystery: 9648,
+      news: 10763,
+      reality: 10764,
+      'sci-fi & fantasy': 10765,
+      'sci-fi': 10765,
+      scifi: 10765,
+      'science fiction': 10765,
+      fantasy: 10765,
+      soap: 10766,
+      talk: 10767,
+      'war & politics': 10768,
+      western: 37,
+    };
+
+    // If no watched genres available, fallback to top trending mix
+    if (!genres || genres.length === 0) {
+      return this.getTrending();
+    }
+
+    // Take top 3 genres from watch history
+    const topGenres = genres.slice(0, 3);
+    const fetchPromises: Promise<MediaItem[]>[] = [];
+
+    for (const g of topGenres) {
+      const normalized = g.toLowerCase().trim();
+      const movieGenreId = MOVIE_GENRES[normalized];
+      const tvGenreId = TV_GENRES[normalized];
+
+      if (movieGenreId) {
+        fetchPromises.push(this.getDiscoverByGenre(movieGenreId, 'movie'));
+      }
+      if (tvGenreId) {
+        fetchPromises.push(this.getDiscoverByGenre(tvGenreId, 'tv'));
+      }
+    }
+
+    if (fetchPromises.length === 0) {
+      return this.getTrending();
+    }
+
+    try {
+      const batches = await Promise.all(fetchPromises);
+      const combined: MediaItem[] = [];
+      const seenIds = new Set<string>();
+
+      // Interleave items from each genre batch to provide a balanced recommendation
+      const maxLength = Math.max(...batches.map((b) => b.length));
+      for (let i = 0; i < maxLength; i++) {
+        for (const batch of batches) {
+          if (batch[i] && !seenIds.has(batch[i].id)) {
+            seenIds.add(batch[i].id);
+            combined.push(batch[i]);
+            if (combined.length >= limit) break;
+          }
+        }
+        if (combined.length >= limit) break;
+      }
+
+      return combined.length > 0 ? combined : this.getTrending();
+    } catch (e) {
+      console.error('Error building genre recommendations:', e);
+      return this.getTrending();
+    }
+  }
+
   async requestMedia(payload: RequestMediaPayload): Promise<{ success: boolean; message?: string; error?: string }> {
     if (!this.isConfigured()) {
       return { success: false, error: 'Seerr is not configured' };

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus } from 'lucide-react';
+import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Server } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
@@ -12,6 +12,7 @@ interface NavbarProps {
   seerrConnected: boolean;
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onOpenServerSetup?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   seerrConnected,
   activeTab,
   onTabChange,
+  onOpenServerSetup,
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -168,8 +170,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Server status pill (Desktop / Tablet) */}
           <div
-            title="Server Connection Status"
-            className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 border border-neutral-700/60 px-2.5 py-1 rounded-full text-xs select-none"
+            onClick={onOpenServerSetup}
+            title="Click to view or edit Server Settings"
+            className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 border border-neutral-700/60 hover:border-neutral-500 hover:bg-neutral-800/80 px-2.5 py-1 rounded-full text-xs select-none cursor-pointer transition"
           >
             <div className="flex items-center space-x-1.5">
               <span
@@ -316,10 +319,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                     openSelector();
                     setIsProfileMenuOpen(false);
                   }}
-                  className="w-full px-3 py-2 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                  className="w-full px-3 py-1.5 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
                 >
                   <Users size={15} className="text-neutral-400" />
                   <span>Who&apos;s watching?</span>
+                </button>
+
+                <div className="border-t border-neutral-800/80 my-1" />
+
+                <button
+                  onClick={() => {
+                    onOpenServerSetup?.();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                >
+                  <Server size={15} className="text-neutral-400" />
+                  <span>Server Settings</span>
                 </button>
               </div>
             )}
