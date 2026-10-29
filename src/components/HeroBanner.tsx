@@ -216,38 +216,38 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         </p>
 
         {/* Action Buttons */}
-        <div className="flex items-center space-x-3 pt-2 pointer-events-auto">
+        <div className="flex items-center space-x-2.5 sm:space-x-3 pt-2 pointer-events-auto">
           {/* Play Button */}
           <button
             onClick={() => onPlay(currentItem)}
-            className="flex items-center space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-6 py-2.5 rounded transition-transform active:scale-95 shadow-md text-base"
+            className="flex items-center space-x-1.5 sm:space-x-2 bg-white text-black hover:bg-neutral-200 font-bold px-4 py-2 sm:px-6 sm:py-2.5 rounded transition-transform active:scale-95 shadow-md text-sm sm:text-base"
           >
-            <Play size={20} className="fill-black" />
+            <Play size={18} className="fill-black sm:w-5 sm:h-5" />
             <span>Play</span>
           </button>
 
           {/* More Info Button */}
           <button
             onClick={() => onOpenModal(currentItem)}
-            className="flex items-center space-x-2 bg-neutral-600/70 hover:bg-neutral-600/90 text-white font-semibold px-5 py-2.5 rounded transition-colors backdrop-blur-sm text-base"
+            className="flex items-center space-x-1.5 sm:space-x-2 bg-neutral-600/70 hover:bg-neutral-600/90 text-white font-semibold px-3.5 py-2 sm:px-5 sm:py-2.5 rounded transition-colors backdrop-blur-sm text-sm sm:text-base"
           >
-            <Info size={20} />
+            <Info size={18} className="sm:w-5 sm:h-5" />
             <span>More Info</span>
           </button>
 
           {/* Add to list button */}
           <button
             onClick={() => setInMyList(!inMyList)}
-            className="p-2.5 rounded-full border-2 border-gray-400 hover:border-white text-white hover:bg-white/10 transition-colors"
+            className="p-2 sm:p-2.5 rounded-full border-2 border-gray-400 hover:border-white text-white hover:bg-white/10 transition-colors"
             title={inMyList ? 'Remove from My List' : 'Add to My List'}
           >
-            {inMyList ? <Check size={18} /> : <Plus size={18} />}
+            {inMyList ? <Check size={16} className="sm:w-[18px] sm:h-[18px]" /> : <Plus size={16} className="sm:w-[18px] sm:h-[18px]" />}
           </button>
         </div>
       </div>
 
-      {/* Right side floating controls & Carousel Indicators */}
-      <div className="absolute right-4 md:right-12 bottom-24 md:bottom-32 z-30 flex flex-col items-end space-y-3 pointer-events-auto">
+      {/* Right side floating controls & Carousel Indicators: upper right on mobile to prevent button overlap */}
+      <div className="absolute right-4 md:right-12 top-20 sm:top-auto sm:bottom-24 md:bottom-32 z-30 flex flex-col items-end space-y-3 pointer-events-auto">
         {/* Sound toggle & age rating */}
         <div className="flex items-center space-x-3">
           {showVideo && currentItem.videoStreamUrl && (

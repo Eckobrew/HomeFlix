@@ -91,12 +91,12 @@ export const MediaModal: React.FC<MediaModalProps> = ({
           <div className="absolute inset-0 bg-gradient-to-r from-[#181818]/60 to-transparent pointer-events-none" />
 
           {/* Action Row on Top of Hero */}
-          <div className="absolute bottom-6 left-6 md:left-10 z-30 space-y-3 pointer-events-auto">
-            <h1 className="text-2xl sm:text-4xl font-black text-white drop-shadow-md">
+          <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 md:left-10 z-30 space-y-2.5 sm:space-y-3 pointer-events-auto max-w-[92%] sm:max-w-none">
+            <h1 className="text-xl sm:text-3xl md:text-4xl font-black text-white drop-shadow-md leading-tight">
               {currentItem.title}
             </h1>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 sm:space-x-3">
               {isAvailable ? (
                 <button
                   onClick={() => {
@@ -142,7 +142,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
         </div>
 
         {/* Modal Body: Two Columns */}
-        <div className="p-6 md:p-10 space-y-8">
+        <div className="p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-8 pb-16 sm:pb-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Left Column: Metadata & Overview */}
             <div className="md:col-span-2 space-y-4">

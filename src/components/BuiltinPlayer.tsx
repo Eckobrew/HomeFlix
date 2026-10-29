@@ -44,6 +44,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [isVolumeHovered, setIsVolumeHovered] = useState(false);
+  const [isVolumeInteracting, setIsVolumeInteracting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [buffered, setBuffered] = useState(0);
@@ -53,6 +55,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [isTranscoding, setIsTranscoding] = useState(false);
   const [isLoadingStream, setIsLoadingStream] = useState(true);
   const [hasTriedFallbackTranscode, setHasTriedFallbackTranscode] = useState(false);
+  const [playbackDuration, setPlaybackDuration] = useState<number>(0);
 
   // Subtitles state
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
@@ -146,6 +149,26 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
   }, [selectedSubtitleId, subtitles]);
 
+  // Resolve known media duration in seconds
+  const knownDurationSeconds =
+    playbackDuration ||
+    (activeEpisode?.totalDurationTicks ? activeEpisode.totalDurationTicks / 10000000 : undefined) ||
+    (activeEpisode?.durationMinutes ? activeEpisode.durationMinutes * 60 : undefined) ||
+    (item.totalDurationTicks ? item.totalDurationTicks / 10000000 : undefined) ||
+    (item.durationMinutes ? item.durationMinutes * 60 : undefined) ||
+    0;
+
+  useEffect(() => {
+    if (knownDurationSeconds > 0) {
+      setDuration((prev) => {
+        if (!prev || prev <= 10 || Math.abs(prev - knownDurationSeconds) > 60) {
+          return knownDurationSeconds;
+        }
+        return prev;
+      });
+    }
+  }, [knownDurationSeconds]);
+
   // Negotiate dynamic playback stream (DirectPlay / Transcoding)
   useEffect(() => {
     if (!activePlayableId && item.type === 'Series') {
@@ -179,6 +202,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         if (data.streamUrl) {
           setStreamUrl(data.streamUrl);
           setIsTranscoding(Boolean(data.isTranscoding));
+          if (data.durationSeconds && data.durationSeconds > 0) {
+            setPlaybackDuration(data.durationSeconds);
+            setDuration(data.durationSeconds);
+          }
         } else {
           const cleanUrl = jellyfinServerUrl?.replace(/\/+$/, '') || '';
           setStreamUrl(`${cleanUrl}/Videos/${targetId}/stream.mp4?api_key=${jellyfinApiKey}`);
@@ -214,6 +241,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             setStreamUrl(data.streamUrl);
             setIsTranscoding(true);
             setStreamError(false);
+            if (data.durationSeconds && data.durationSeconds > 0) {
+              setPlaybackDuration(data.durationSeconds);
+              setDuration(data.durationSeconds);
+            }
             if (videoRef.current) {
               videoRef.current.load();
               videoRef.current.play().catch(console.error);
@@ -250,6 +281,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           if (data.streamUrl) {
             setStreamUrl(data.streamUrl);
             setIsTranscoding(true);
+            if (data.durationSeconds && data.durationSeconds > 0) {
+              setPlaybackDuration(data.durationSeconds);
+              setDuration(data.durationSeconds);
+            }
             if (videoRef.current) {
               videoRef.current.load();
               videoRef.current.play().catch(console.error);
@@ -291,16 +326,26 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const handleTimeUpdate = () => {
     if (videoRef.current) {
       setCurrentTime(videoRef.current.currentTime);
-      if (videoRef.current.buffered.length > 0) {
+      const effectiveDuration = duration > 0 ? duration : (knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0));
+      if (videoRef.current.buffered.length > 0 && effectiveDuration > 0) {
         const buffEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
-        setBuffered((buffEnd / videoRef.current.duration) * 100);
+        setBuffered(Math.min(100, (buffEnd / effectiveDuration) * 100));
       }
     }
   };
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDuration(videoRef.current.duration);
+      const videoDur = videoRef.current.duration;
+      // Jellyfin transcode chunks (e.g. 5s) report a tiny segment duration.
+      // Never overwrite duration with a small segment duration (< 60s) when the title has a known longer duration.
+      if (Number.isFinite(videoDur) && videoDur > 60 && (!knownDurationSeconds || videoDur >= knownDurationSeconds * 0.7)) {
+        setDuration(videoDur);
+      } else if (knownDurationSeconds > 0) {
+        setDuration(knownDurationSeconds);
+      } else if (Number.isFinite(videoDur) && videoDur > 0) {
+        setDuration(videoDur);
+      }
 
       // Auto-resume from previous playback position
       let resumeSeconds = 0;
@@ -310,7 +355,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         resumeSeconds = Math.floor(item.playbackPositionTicks / 10000000);
       }
 
-      if (resumeSeconds > 0 && resumeSeconds < videoRef.current.duration - 5) {
+      const effectiveDuration = knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0);
+      if (resumeSeconds > 0 && effectiveDuration > 0 && resumeSeconds < effectiveDuration - 5) {
         videoRef.current.currentTime = resumeSeconds;
       }
 
@@ -488,22 +534,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         }`}
       >
         {/* Top Header Bar */}
-        <div className="p-6 md:p-8 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between pointer-events-auto">
+        <div className="p-3 sm:p-6 md:p-8 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between pointer-events-auto">
           {/* Back button + Media Title */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2.5 sm:space-x-4 min-w-0 flex-1 mr-4">
             <button
               onClick={onClose}
-              className="p-2 rounded-full hover:bg-white/20 text-white transition-colors"
+              className="p-1.5 sm:p-2 rounded-full hover:bg-white/20 text-white transition-colors shrink-0"
               title="Back (Esc)"
             >
-              <ArrowLeft size={28} />
+              <ArrowLeft className="w-6 h-6 sm:w-7 sm:h-7" />
             </button>
-            <div className="space-y-0.5">
-              <h2 className="text-white font-bold text-lg md:text-xl drop-shadow">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <h2 className="text-white font-bold text-base sm:text-lg md:text-xl drop-shadow truncate">
                 {item.title}
               </h2>
               {activeEpisode && (
-                <p className="text-neutral-400 text-xs md:text-sm font-medium">
+                <p className="text-neutral-400 text-xs sm:text-sm font-medium truncate">
                   Season {activeEpisode.seasonNumber}, Episode {activeEpisode.episodeNumber}: {activeEpisode.name}
                 </p>
               )}
@@ -511,16 +557,31 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </div>
         </div>
 
+        {/* Center Floating Play/Pause for Mobile & Quick Touch */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <button
+            onClick={togglePlay}
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white flex items-center justify-center pointer-events-auto hover:scale-110 active:scale-90 transition-all shadow-2xl backdrop-blur-sm"
+            title={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? (
+              <Pause className="w-6 h-6 sm:w-7 sm:h-7 fill-white" />
+            ) : (
+              <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-white ml-1" />
+            )}
+          </button>
+        </div>
+
         {/* Bottom Controls Bar */}
         <div
-          className="p-6 md:p-8 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto space-y-3"
+          className="p-3 sm:p-6 md:p-8 pb-4 sm:pb-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto space-y-2 sm:space-y-3"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Timeline Scrubber */}
-          <div className="relative group/scrubber cursor-pointer w-full flex items-center">
+          <div className="relative group/scrubber cursor-pointer w-full flex items-center py-1.5 sm:py-2">
             {/* Buffer Bar */}
             <div
-              className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-neutral-700 rounded-full"
+              className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-neutral-700 rounded-full pointer-events-none"
               style={{ width: `${buffered}%` }}
             />
 
@@ -537,64 +598,80 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </div>
 
           {/* Controls Row */}
-          <div className="flex items-center justify-between text-white pt-1">
+          <div className="flex items-center justify-between text-white pt-0.5 sm:pt-1">
             {/* Left: Play/Pause, Rewind, Forward, Volume, Time */}
-            <div className="flex items-center space-x-4 md:space-x-6">
+            <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-6 min-w-0">
               <button
                 onClick={togglePlay}
-                className="hover:text-red-500 transition-colors"
+                className="hover:text-red-500 transition-colors p-1"
                 title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
               >
-                {isPlaying ? <Pause size={24} /> : <Play size={24} className="fill-white" />}
+                {isPlaying ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-white" />}
               </button>
 
               <button
                 onClick={() => seek(-10)}
-                className="hover:text-neutral-300 transition-colors"
+                className="hover:text-neutral-300 transition-colors p-1"
                 title="Rewind 10 seconds"
               >
-                <RotateCcw size={22} />
+                <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
               <button
                 onClick={() => seek(10)}
-                className="hover:text-neutral-300 transition-colors"
+                className="hover:text-neutral-300 transition-colors p-1"
                 title="Fast forward 10 seconds"
               >
-                <RotateCw size={22} />
+                <RotateCw className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
 
-              {/* Volume control */}
-              <div className="flex items-center space-x-2 group/volume">
-                <button onClick={toggleMute} className="hover:text-neutral-300 transition-colors">
-                  {isMuted || volume === 0 ? <VolumeX size={22} /> : <Volume2 size={22} />}
+              {/* Volume control: mute toggle everywhere; range slider on desktop/tablet hover */}
+              <div
+                className="flex items-center space-x-1 sm:space-x-2 group/volume relative py-1"
+                onMouseEnter={() => setIsVolumeHovered(true)}
+                onMouseLeave={() => setIsVolumeHovered(false)}
+              >
+                <button onClick={toggleMute} className="hover:text-neutral-300 transition-colors p-1" title={isMuted ? 'Unmute' : 'Mute'}>
+                  {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </button>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={isMuted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="w-0 group-hover/volume:w-20 transition-all duration-300 h-1 bg-neutral-600 rounded appearance-none cursor-pointer accent-white"
-                />
+                <div
+                  className={`hidden sm:flex overflow-hidden items-center transition-all duration-300 ${
+                    isVolumeHovered || isVolumeInteracting
+                      ? 'w-20 opacity-100 pointer-events-auto'
+                      : 'w-0 opacity-0 pointer-events-none'
+                  }`}
+                >
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={isMuted ? 0 : volume}
+                    onChange={handleVolumeChange}
+                    onMouseDown={() => setIsVolumeInteracting(true)}
+                    onMouseUp={() => setIsVolumeInteracting(false)}
+                    onTouchStart={() => setIsVolumeInteracting(true)}
+                    onTouchEnd={() => setIsVolumeInteracting(false)}
+                    className="w-20 h-1 bg-neutral-600 rounded appearance-none cursor-pointer accent-white"
+                  />
+                </div>
               </div>
 
               {/* Time Display */}
-              <div className="text-xs md:text-sm font-mono text-neutral-300">
+              <div className="text-[11px] sm:text-xs md:text-sm font-mono text-neutral-300 whitespace-nowrap">
                 <span>{formatTime(currentTime)}</span>
                 <span className="mx-1 text-neutral-500">/</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
 
-            {/* Center: Title on Mobile/Tablet */}
-            <div className="hidden lg:block text-sm font-semibold text-neutral-300 truncate max-w-md">
+            {/* Center: Title on Tablet/Desktop */}
+            <div className="hidden xl:block text-sm font-semibold text-neutral-300 truncate max-w-sm px-4">
               {currentTitle}
             </div>
 
             {/* Right: Subtitles, Next Episode, Fullscreen */}
-            <div className="flex items-center space-x-4 md:space-x-5 relative">
+            <div className="flex items-center space-x-2 sm:space-x-4 md:space-x-5 relative shrink-0">
               {/* Subtitles Button & Popover */}
               <div className="relative">
                 <button
@@ -604,13 +681,13 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
                   }`}
                   title="Subtitles (C)"
                 >
-                  <Subtitles size={22} />
+                  <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
 
                 {/* Subtitles Selection Popup Menu */}
                 {showSubtitleMenu && (
                   <div
-                    className="absolute right-0 bottom-10 bg-neutral-900/95 border border-neutral-700/80 rounded-lg shadow-2xl p-3 min-w-[220px] max-h-[320px] overflow-y-auto z-50 animate-fade-in backdrop-blur-md"
+                    className="absolute right-0 bottom-10 sm:bottom-12 bg-neutral-900/95 border border-neutral-700/80 rounded-lg shadow-2xl p-3 min-w-[200px] sm:min-w-[240px] max-h-[50vh] sm:max-h-[300px] overflow-y-auto z-50 animate-fade-in backdrop-blur-md"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2 px-2 flex items-center justify-between">
@@ -677,20 +754,20 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               {onNextEpisode && (
                 <button
                   onClick={onNextEpisode}
-                  className="flex items-center space-x-1.5 hover:text-neutral-300 transition-colors text-sm font-semibold"
+                  className="flex items-center space-x-1 hover:text-neutral-300 transition-colors text-xs sm:text-sm font-semibold p-1"
                   title="Next Episode"
                 >
-                  <SkipForward size={20} />
-                  <span className="hidden sm:inline">Next Episode</span>
+                  <SkipForward className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <span className="hidden md:inline">Next Episode</span>
                 </button>
               )}
 
               <button
                 onClick={toggleFullscreen}
-                className="hover:text-neutral-300 transition-colors"
+                className="hover:text-neutral-300 transition-colors p-1"
                 title="Fullscreen (F)"
               >
-                {isFullscreen ? <Minimize size={22} /> : <Maximize size={22} />}
+                {isFullscreen ? <Minimize className="w-4 h-4 sm:w-5 sm:h-5" /> : <Maximize className="w-4 h-4 sm:w-5 sm:h-5" />}
               </button>
             </div>
           </div>

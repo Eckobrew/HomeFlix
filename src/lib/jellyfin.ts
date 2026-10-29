@@ -141,6 +141,8 @@ export class JellyfinClient {
     transcodeReasons?: string;
     playSessionId?: string;
     mediaSourceId?: string;
+    totalDurationTicks?: number;
+    durationSeconds?: number;
   }> {
     if (!this.isConfigured() || !itemId) {
       return {
@@ -208,6 +210,11 @@ export class JellyfinClient {
         const data = await res.json();
         const mediaSource = data.MediaSources?.[0];
         if (mediaSource) {
+          const totalDurationTicks = mediaSource.RunTimeTicks;
+          const durationSeconds = typeof mediaSource.RunTimeTicks === 'number' && mediaSource.RunTimeTicks > 0
+            ? mediaSource.RunTimeTicks / 10000000
+            : undefined;
+
           if (mediaSource.TranscodingUrl) {
             return {
               streamUrl: `${this.url}${mediaSource.TranscodingUrl}`,
@@ -215,6 +222,8 @@ export class JellyfinClient {
               transcodeReasons: mediaSource.TranscodeReasons?.join(', '),
               playSessionId: data.PlaySessionId,
               mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
             };
           }
 
@@ -224,6 +233,8 @@ export class JellyfinClient {
               isTranscoding: false,
               playSessionId: data.PlaySessionId,
               mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
             };
           }
 
@@ -233,6 +244,8 @@ export class JellyfinClient {
               isTranscoding: false,
               playSessionId: data.PlaySessionId,
               mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
             };
           }
         }
@@ -525,6 +538,7 @@ export class JellyfinClient {
               name: ep.Name,
               overview: ep.Overview || 'No description available.',
               durationMinutes: ep.RunTimeTicks ? Math.round(ep.RunTimeTicks / (10000 * 1000 * 60)) : 45,
+              totalDurationTicks: ep.RunTimeTicks,
               thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
               jellyfinId: ep.Id,
               videoStreamUrl: this.getStreamUrl(ep.Id),

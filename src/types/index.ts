@@ -21,6 +21,7 @@ export interface Episode {
   durationMinutes: number;
   thumbnailUrl: string;
   playbackPositionTicks?: number;
+  totalDurationTicks?: number;
   jellyfinId?: string;
   videoStreamUrl?: string;
 }

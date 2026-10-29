@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Home, Tv, Film, Download } from 'lucide-react';
 
 interface NavbarProps {
   onSearchChange: (query: string) => void;
@@ -34,148 +34,202 @@ export const Navbar: React.FC<NavbarProps> = ({
   }, []);
 
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-4 md:px-12 py-3 flex items-center justify-between ${
-        isScrolled
-          ? 'bg-[#141414] shadow-lg shadow-black/80'
-          : 'bg-gradient-to-b from-black/90 via-black/40 to-transparent'
-      }`}
-    >
-      {/* Left side: Logo & Navigation */}
-      <div className="flex items-center space-x-6 md:space-x-8">
-        {/* HomeFlix Logo */}
-        <div
-          onClick={() => {
-            onTabChange('home');
-            onSearchChange('');
-          }}
-          className="cursor-pointer flex items-center select-none group"
-        >
-          <span className="text-2xl md:text-3xl font-black tracking-wider text-red-600 transition-transform group-hover:scale-105 duration-200">
-            HOMEFLIX
-          </span>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="hidden md:flex items-center space-x-5 text-sm font-medium">
-          <button
+    <>
+      <nav
+        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 px-3 sm:px-6 md:px-12 py-2.5 sm:py-3 flex items-center justify-between ${
+          isScrolled
+            ? 'bg-[#141414] shadow-lg shadow-black/80'
+            : 'bg-gradient-to-b from-black/90 via-black/40 to-transparent'
+        }`}
+      >
+        {/* Left side: Logo & Navigation */}
+        <div className="flex items-center space-x-3 sm:space-x-6 md:space-x-8">
+          {/* HomeFlix Logo */}
+          <div
             onClick={() => {
               onTabChange('home');
               onSearchChange('');
             }}
-            className={`transition-colors ${
-              activeTab === 'home' && !searchQuery
-                ? 'text-white font-bold'
-                : 'text-gray-300 hover:text-gray-100'
-            }`}
+            className="cursor-pointer flex items-center select-none group"
           >
-            Home
-          </button>
-          <button
-            onClick={() => onTabChange('series')}
-            className={`transition-colors ${
-              activeTab === 'series'
-                ? 'text-white font-bold'
-                : 'text-gray-300 hover:text-gray-100'
-            }`}
-          >
-            TV Shows
-          </button>
-          <button
-            onClick={() => onTabChange('movies')}
-            className={`transition-colors ${
-              activeTab === 'movies'
-                ? 'text-white font-bold'
-                : 'text-gray-300 hover:text-gray-100'
-            }`}
-          >
-            Movies
-          </button>
-          <button
-            onClick={() => onTabChange('requests')}
-            className={`transition-colors ${
-              activeTab === 'requests'
-                ? 'text-white font-bold'
-                : 'text-gray-300 hover:text-gray-100'
-            }`}
-          >
-            Request Content
-          </button>
-        </div>
-      </div>
+            <span className="text-xl sm:text-2xl md:text-3xl font-black tracking-wider text-red-600 transition-transform group-hover:scale-105 duration-200">
+              HOMEFLIX
+            </span>
+          </div>
 
-      {/* Right side: Search, Server Indicators, Settings, Profile */}
-      <div className="flex items-center space-x-4 md:space-x-5 text-gray-200">
-        {/* Search bar */}
-        <div
-          className={`flex items-center transition-all duration-300 ${
-            isSearchOpen || searchQuery
-              ? 'bg-black/80 border border-white/40 px-3 py-1 rounded-sm w-48 md:w-72'
-              : 'w-8 justify-end'
+          {/* Navigation Tabs (Desktop / Tablet) */}
+          <div className="hidden md:flex items-center space-x-5 text-sm font-medium">
+            <button
+              onClick={() => {
+                onTabChange('home');
+                onSearchChange('');
+              }}
+              className={`transition-colors ${
+                activeTab === 'home' && !searchQuery
+                  ? 'text-white font-bold'
+                  : 'text-gray-300 hover:text-gray-100'
+              }`}
+            >
+              Home
+            </button>
+            <button
+              onClick={() => onTabChange('series')}
+              className={`transition-colors ${
+                activeTab === 'series'
+                  ? 'text-white font-bold'
+                  : 'text-gray-300 hover:text-gray-100'
+              }`}
+            >
+              TV Shows
+            </button>
+            <button
+              onClick={() => onTabChange('movies')}
+              className={`transition-colors ${
+                activeTab === 'movies'
+                  ? 'text-white font-bold'
+                  : 'text-gray-300 hover:text-gray-100'
+              }`}
+            >
+              Movies
+            </button>
+            <button
+              onClick={() => onTabChange('requests')}
+              className={`transition-colors ${
+                activeTab === 'requests'
+                  ? 'text-white font-bold'
+                  : 'text-gray-300 hover:text-gray-100'
+              }`}
+            >
+              Request Content
+            </button>
+          </div>
+        </div>
+
+        {/* Right side: Search, Server Indicators, Profile */}
+        <div className="flex items-center space-x-2.5 sm:space-x-4 md:space-x-5 text-gray-200">
+          {/* Search bar */}
+          <div
+            className={`flex items-center transition-all duration-300 ${
+              isSearchOpen || searchQuery
+                ? 'bg-black/80 border border-white/40 px-2 sm:px-3 py-1 rounded-sm w-40 sm:w-56 md:w-72'
+                : 'w-7 sm:w-8 justify-end'
+            }`}
+          >
+            <Search
+              size={18}
+              className="cursor-pointer text-gray-300 hover:text-white shrink-0 sm:w-5 sm:h-5"
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+            />
+            {(isSearchOpen || searchQuery) && (
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => onSearchChange(e.target.value)}
+                autoFocus
+                className="bg-transparent border-none text-white text-xs sm:text-sm outline-none px-1.5 sm:px-2 w-full placeholder-gray-400"
+              />
+            )}
+            {searchQuery && (
+              <X
+                size={16}
+                className="cursor-pointer text-gray-400 hover:text-white shrink-0"
+                onClick={() => {
+                  onSearchChange('');
+                  setIsSearchOpen(false);
+                }}
+              />
+            )}
+          </div>
+
+          {/* Server status pill (Desktop / Tablet) */}
+          <div
+            title="Server Connection Status"
+            className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 border border-neutral-700/60 px-2.5 py-1 rounded-full text-xs select-none"
+          >
+            <div className="flex items-center space-x-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  jellyfinConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                }`}
+              />
+              <span className="font-medium text-gray-300">
+                {jellyfinConnected ? 'Jellyfin' : 'Demo'}
+              </span>
+            </div>
+            <span className="text-neutral-600">|</span>
+            <div className="flex items-center space-x-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  seerrConnected ? 'bg-emerald-500' : 'bg-neutral-500'
+                }`}
+              />
+              <span className="font-medium text-gray-400">
+                {seerrConnected ? 'Seerr' : 'Seerr Off'}
+              </span>
+            </div>
+          </div>
+
+          {/* User profile avatar */}
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded bg-red-700 overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow select-none">
+            HF
+          </div>
+        </div>
+      </nav>
+
+      {/* Mobile Bottom Navigation Bar (Pixel 8a / Samsung S26) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 border-t border-neutral-800/80 backdrop-blur-lg flex items-center justify-around py-1.5 px-2 pb-safe shadow-[0_-10px_25px_rgba(0,0,0,0.8)]">
+        <button
+          onClick={() => {
+            onTabChange('home');
+            onSearchChange('');
+          }}
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+            activeTab === 'home' && !searchQuery
+              ? 'text-red-500 font-bold'
+              : 'text-neutral-400 hover:text-white'
           }`}
         >
-          <Search
-            size={20}
-            className="cursor-pointer text-gray-300 hover:text-white shrink-0"
-            onClick={() => setIsSearchOpen(!isSearchOpen)}
-          />
-          {(isSearchOpen || searchQuery) && (
-            <input
-              type="text"
-              placeholder="Titles, people, genres (Seerr)..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              autoFocus
-              className="bg-transparent border-none text-white text-sm outline-none px-2 w-full placeholder-gray-400"
-            />
-          )}
-          {searchQuery && (
-            <X
-              size={16}
-              className="cursor-pointer text-gray-400 hover:text-white shrink-0"
-              onClick={() => {
-                onSearchChange('');
-                setIsSearchOpen(false);
-              }}
-            />
-          )}
-        </div>
+          <Home size={19} />
+          <span className="text-[10px] tracking-tight">Home</span>
+        </button>
 
-        {/* Server status pill */}
-        <div
-          title="Server Connection Status"
-          className="hidden sm:flex items-center space-x-2 bg-neutral-900/80 border border-neutral-700/60 px-2.5 py-1 rounded-full text-xs select-none"
+        <button
+          onClick={() => onTabChange('series')}
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+            activeTab === 'series'
+              ? 'text-red-500 font-bold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
         >
-          <div className="flex items-center space-x-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                jellyfinConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-              }`}
-            />
-            <span className="font-medium text-gray-300">
-              {jellyfinConnected ? 'Jellyfin' : 'Demo'}
-            </span>
-          </div>
-          <span className="text-neutral-600">|</span>
-          <div className="flex items-center space-x-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                seerrConnected ? 'bg-emerald-500' : 'bg-neutral-500'
-              }`}
-            />
-            <span className="font-medium text-gray-400">
-              {seerrConnected ? 'Seerr' : 'Seerr Off'}
-            </span>
-          </div>
-        </div>
+          <Tv size={19} />
+          <span className="text-[10px] tracking-tight">TV Shows</span>
+        </button>
 
-        {/* User profile avatar */}
-        <div
-          className="w-8 h-8 rounded bg-red-700 overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow select-none"
+        <button
+          onClick={() => onTabChange('movies')}
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+            activeTab === 'movies'
+              ? 'text-red-500 font-bold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
         >
-          HF
-        </div>
+          <Film size={19} />
+          <span className="text-[10px] tracking-tight">Movies</span>
+        </button>
+
+        <button
+          onClick={() => onTabChange('requests')}
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+            activeTab === 'requests'
+              ? 'text-red-500 font-bold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Download size={19} />
+          <span className="text-[10px] tracking-tight">Requests</span>
+        </button>
       </div>
-    </nav>
+    </>
   );
 };

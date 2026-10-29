@@ -83,3 +83,12 @@ video::cue {
 .media-card:hover {
   box-shadow: 0 14px 28px rgba(0,0,0,0.7), 0 10px 10px rgba(0,0,0,0.6);
 }
+
+/* Safe area insets for mobile gesture bars (Samsung Galaxy S26, Pixel 8a, iPhone) */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+.pt-safe {
+  padding-top: max(0.75rem, env(safe-area-inset-top));
+}

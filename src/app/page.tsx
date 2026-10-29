@@ -239,7 +239,7 @@ export default function Home() {
           </div>
 
           {/* Footer */}
-          <footer className="px-4 md:px-12 py-12 border-t border-neutral-800/60 text-xs text-neutral-500 space-y-4">
+          <footer className="px-4 md:px-12 py-12 pb-24 md:pb-12 border-t border-neutral-800/60 text-xs text-neutral-500 space-y-4">
             <div className="flex flex-wrap gap-6">
               <span className="hover:text-neutral-400 cursor-pointer">Audio and Subtitles</span>
               <span className="hover:text-neutral-400 cursor-pointer">Help Center</span>
