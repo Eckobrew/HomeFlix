@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useProfile } from '@/context/ProfileContext';
-import { PROFILE_PALETTES, getInitials } from '@/lib/profiles';
+import { PROFILE_PALETTES, getInitials } from '@/lib/profile-constants';
 import { X, Check, ShieldCheck, Plus, Trash2, Loader2, Settings, ArrowLeft } from 'lucide-react';
 
 export const ProfileSelectorModal: React.FC = () => {
