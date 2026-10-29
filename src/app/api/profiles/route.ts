@@ -3,6 +3,8 @@ import {
   getHomeflixProfiles,
   addHomeflixProfile,
   deleteHomeflixProfile,
+  getAvailableJellyfinUsers,
+  importProfilesFromJellyfin,
 } from '@/lib/profiles';
 import { getServerConfig } from '@/lib/config';
 
@@ -14,6 +16,14 @@ export async function GET(request: NextRequest) {
     const profiles = await getHomeflixProfiles();
     const config = getServerConfig();
     const cookieProfileId = request.cookies.get('homeflix_profile_id')?.value;
+    const includeAvailable = request.nextUrl.searchParams.get('includeAvailable') === 'true';
+
+    const needsSetup = profiles.length === 0;
+
+    let availableJellyfinUsers: any[] = [];
+    if (needsSetup || includeAvailable) {
+      availableJellyfinUsers = await getAvailableJellyfinUsers();
+    }
 
     let activeProfileId = '';
 
@@ -21,14 +31,15 @@ export async function GET(request: NextRequest) {
       activeProfileId = cookieProfileId;
     } else if (config.jellyfinUserId && profiles.some((p) => p.id === config.jellyfinUserId)) {
       activeProfileId = config.jellyfinUserId;
-    } else {
-      const nathanProfile = profiles.find((p) => p.name.toLowerCase().includes('nathan'));
-      activeProfileId = nathanProfile?.id || profiles[0]?.id || '';
+    } else if (profiles.length > 0) {
+      activeProfileId = profiles[0].id;
     }
 
     const response = NextResponse.json({
       profiles,
       activeProfileId,
+      needsSetup,
+      availableJellyfinUsers,
     });
 
     if (activeProfileId && !cookieProfileId) {
@@ -51,9 +62,45 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action = 'select', profileId, name, paletteIndex } = body;
+    const { action = 'select', profileId, name, paletteIndex, userIds, userId } = body;
 
-    // 1. Create a new decoupled profile
+    // 1. Import profiles from Jellyfin
+    if (action === 'import') {
+      const idsToImport = Array.isArray(userIds) ? userIds : userId ? [userId] : [];
+      if (idsToImport.length === 0) {
+        return NextResponse.json(
+          { error: 'At least one userId is required to import' },
+          { status: 400 }
+        );
+      }
+
+      const updatedProfiles = await importProfilesFromJellyfin(idsToImport);
+      const firstImported =
+        updatedProfiles.find((p) => idsToImport.includes(p.id)) || updatedProfiles[0];
+      const newActiveId = firstImported?.id || '';
+
+      const response = NextResponse.json({
+        success: true,
+        profiles: updatedProfiles,
+        activeProfileId: newActiveId,
+        needsSetup: false,
+      });
+
+      if (newActiveId) {
+        response.cookies.set({
+          name: 'homeflix_profile_id',
+          value: newActiveId,
+          path: '/',
+          maxAge: 31536000,
+          sameSite: 'lax',
+          httpOnly: false,
+        });
+      }
+
+      return response;
+    }
+
+    // 2. Create a new decoupled profile
     if (action === 'create') {
       if (!name || typeof name !== 'string' || !name.trim()) {
         return NextResponse.json({ error: 'Profile name is required' }, { status: 400 });
@@ -67,6 +114,7 @@ export async function POST(request: NextRequest) {
         profile: newProfile,
         profiles: allProfiles,
         activeProfileId: newProfile.id,
+        needsSetup: false,
       });
 
       response.cookies.set({
@@ -81,7 +129,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    // 2. Delete a profile
+    // 3. Delete a profile
     if (action === 'delete') {
       if (!profileId) {
         return NextResponse.json({ error: 'profileId is required to delete' }, { status: 400 });
@@ -104,6 +152,7 @@ export async function POST(request: NextRequest) {
         success: true,
         profiles: allProfiles,
         activeProfileId: newActiveId,
+        needsSetup: allProfiles.length === 0,
       });
 
       if (cookieProfileId === profileId && newActiveId) {
@@ -120,7 +169,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    // 3. Default: Select existing profile
+    // 4. Default: Select existing profile
     const targetProfileId = profileId;
     if (!targetProfileId || typeof targetProfileId !== 'string') {
       return NextResponse.json({ error: 'Valid profileId is required' }, { status: 400 });

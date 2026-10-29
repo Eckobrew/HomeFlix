@@ -6,27 +6,6 @@ import { PROFILE_PALETTES, getInitials } from './profile-constants';
 
 export { PROFILE_PALETTES, getInitials };
 
-const INITIAL_PROFILES: UserProfile[] = [
-  {
-    id: '76a8becc30804c2fb4914e6a6edeb2e2',
-    name: 'Nathan',
-    avatarColor: 'from-red-600 to-red-800',
-    avatarBg: 'bg-red-600',
-    initials: 'N',
-    isAdministrator: true,
-    jellyfinUserId: '76a8becc30804c2fb4914e6a6edeb2e2',
-  },
-  {
-    id: 'edaf5415cb4a4c69aebe0bbd55d2f219',
-    name: 'Mirelle',
-    avatarColor: 'from-purple-600 to-pink-600',
-    avatarBg: 'bg-purple-600',
-    initials: 'M',
-    isAdministrator: false,
-    jellyfinUserId: 'edaf5415cb4a4c69aebe0bbd55d2f219',
-  },
-];
-
 function getProfilesFilePath(): string {
   const custom = process.env.DATA_DIR;
   let targetDir = custom || path.join(process.cwd(), 'data');
@@ -48,7 +27,7 @@ function getProfilesFilePath(): string {
 
 /**
  * Load decoupled HomeFlix profiles from persistent storage.
- * If file does not exist, initializes with Nathan and Mirelle.
+ * Returns an empty array on first run when no profiles have been created or imported yet.
  */
 export async function getHomeflixProfiles(): Promise<UserProfile[]> {
   const filePath = getProfilesFilePath();
@@ -57,22 +36,15 @@ export async function getHomeflixProfiles(): Promise<UserProfile[]> {
     if (fs.existsSync(filePath)) {
       const content = fs.readFileSync(filePath, 'utf-8');
       const parsed: UserProfile[] = JSON.parse(content);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
   } catch (err) {
-    console.error('Failed reading profiles.json, falling back to initial profiles:', err);
+    console.error('Failed reading profiles.json:', err);
   }
 
-  // File didn't exist or was empty; write defaults
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(INITIAL_PROFILES, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Failed writing initial profiles.json:', err);
-  }
-
-  return INITIAL_PROFILES;
+  return [];
 }
 
 /**
@@ -81,6 +53,57 @@ export async function getHomeflixProfiles(): Promise<UserProfile[]> {
 export async function saveHomeflixProfiles(profiles: UserProfile[]): Promise<void> {
   const filePath = getProfilesFilePath();
   fs.writeFileSync(filePath, JSON.stringify(profiles, null, 2), 'utf-8');
+}
+
+/**
+ * Fetch available Jellyfin users from the Jellyfin server.
+ */
+export async function getAvailableJellyfinUsers(): Promise<UserProfile[]> {
+  const jellyfin = new JellyfinClient();
+  if (!jellyfin.isConfigured()) return [];
+  try {
+    return await jellyfin.getUsers();
+  } catch (err) {
+    console.error('Failed fetching available Jellyfin users:', err);
+    return [];
+  }
+}
+
+/**
+ * Import selected profile(s) from Jellyfin into HomeFlix.
+ */
+export async function importProfilesFromJellyfin(userIds: string[]): Promise<UserProfile[]> {
+  if (!Array.isArray(userIds) || userIds.length === 0) {
+    return await getHomeflixProfiles();
+  }
+
+  const jellyfin = new JellyfinClient();
+  const allJellyfinUsers = await jellyfin.getUsers();
+  const currentProfiles = await getHomeflixProfiles();
+
+  const toImport = allJellyfinUsers.filter((u) => userIds.includes(u.id));
+  const updatedProfiles = [...currentProfiles];
+
+  for (const jUser of toImport) {
+    const alreadyExists = updatedProfiles.some(
+      (p) => p.id === jUser.id || (p.jellyfinUserId && p.jellyfinUserId === jUser.id)
+    );
+    if (!alreadyExists) {
+      updatedProfiles.push({
+        id: jUser.id,
+        name: jUser.name,
+        avatarColor: jUser.avatarColor,
+        avatarBg: jUser.avatarBg,
+        initials: jUser.initials,
+        avatarUrl: jUser.avatarUrl,
+        isAdministrator: jUser.isAdministrator,
+        jellyfinUserId: jUser.id,
+      });
+    }
+  }
+
+  await saveHomeflixProfiles(updatedProfiles);
+  return updatedProfiles;
 }
 
 /**

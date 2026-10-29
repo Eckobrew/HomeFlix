@@ -8,12 +8,16 @@ interface ProfileContextType {
   activeProfile: UserProfile | null;
   isLoadingProfiles: boolean;
   isSelectorOpen: boolean;
+  needsSetup: boolean;
+  availableJellyfinUsers: UserProfile[];
   openSelector: () => void;
   closeSelector: () => void;
   selectProfile: (profileId: string) => Promise<void>;
   createProfile: (name: string, paletteIndex?: number) => Promise<UserProfile | null>;
   deleteProfile: (profileId: string) => Promise<boolean>;
+  importProfiles: (userIds: string[]) => Promise<boolean>;
   refreshProfiles: () => Promise<void>;
+  fetchAvailableJellyfinUsers: () => Promise<UserProfile[]>;
 }
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
@@ -23,22 +27,29 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [activeProfile, setActiveProfile] = useState<UserProfile | null>(null);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState<boolean>(true);
   const [isSelectorOpen, setIsSelectorOpen] = useState<boolean>(false);
+  const [needsSetup, setNeedsSetup] = useState<boolean>(false);
+  const [availableJellyfinUsers, setAvailableJellyfinUsers] = useState<UserProfile[]>([]);
 
   const fetchProfiles = useCallback(async () => {
     try {
       setIsLoadingProfiles(true);
-      const res = await fetch('/api/profiles');
+      const res = await fetch('/api/profiles?includeAvailable=true');
       if (res.ok) {
         const data = await res.json();
         const loadedProfiles: UserProfile[] = data.profiles || [];
         setProfiles(loadedProfiles);
+        setNeedsSetup(Boolean(data.needsSetup));
+        setAvailableJellyfinUsers(data.availableJellyfinUsers || []);
+
+        if (data.needsSetup) {
+          setIsSelectorOpen(true);
+        }
 
         const activeId: string = data.activeProfileId;
         const matched = loadedProfiles.find((p) => p.id === activeId) || loadedProfiles[0] || null;
         setActiveProfile(matched);
 
         if (matched) {
-          // Sync client cookie for immediate synchronous reads
           document.cookie = `homeflix_profile_id=${matched.id}; path=/; max-age=31536000; SameSite=Lax`;
         }
       }
@@ -96,7 +107,10 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.profiles) setProfiles(data.profiles);
+          if (data.profiles) {
+            setProfiles(data.profiles);
+            setNeedsSetup(false);
+          }
           if (data.profile) {
             setActiveProfile(data.profile);
             setIsSelectorOpen(false);
@@ -119,6 +133,45 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  const importProfiles = useCallback(
+    async (userIds: string[]): Promise<boolean> => {
+      try {
+        const res = await fetch('/api/profiles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'import', userIds }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.profiles) {
+            setProfiles(data.profiles);
+            setNeedsSetup(false);
+          }
+          if (data.activeProfileId) {
+            const matched = (data.profiles || []).find((p: UserProfile) => p.id === data.activeProfileId);
+            if (matched) {
+              setActiveProfile(matched);
+              document.cookie = `homeflix_profile_id=${matched.id}; path=/; max-age=31536000; SameSite=Lax`;
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                  new CustomEvent('homeflix-profile-changed', {
+                    detail: { profile: matched },
+                  })
+                );
+              }
+            }
+          }
+          setIsSelectorOpen(false);
+          return true;
+        }
+      } catch (err) {
+        console.error('Failed to import profiles from Jellyfin:', err);
+      }
+      return false;
+    },
+    []
+  );
+
   const deleteProfile = useCallback(
     async (profileId: string): Promise<boolean> => {
       try {
@@ -129,7 +182,10 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.profiles) setProfiles(data.profiles);
+          if (data.profiles) {
+            setProfiles(data.profiles);
+            setNeedsSetup(data.profiles.length === 0);
+          }
           if (data.activeProfileId) {
             const nextActive = (data.profiles || []).find((p: UserProfile) => p.id === data.activeProfileId);
             if (nextActive) {
@@ -154,8 +210,28 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  const fetchAvailableJellyfinUsers = useCallback(async (): Promise<UserProfile[]> => {
+    try {
+      const res = await fetch('/api/profiles?includeAvailable=true');
+      if (res.ok) {
+        const data = await res.json();
+        const available = data.availableJellyfinUsers || [];
+        setAvailableJellyfinUsers(available);
+        return available;
+      }
+    } catch (err) {
+      console.error('Failed to fetch available Jellyfin users:', err);
+    }
+    return [];
+  }, []);
+
   const openSelector = useCallback(() => setIsSelectorOpen(true), []);
-  const closeSelector = useCallback(() => setIsSelectorOpen(false), []);
+  const closeSelector = useCallback(() => {
+    // Only allow closing if setup is already complete (at least 1 profile exists)
+    if (!needsSetup && profiles.length > 0) {
+      setIsSelectorOpen(false);
+    }
+  }, [needsSetup, profiles.length]);
 
   return (
     <ProfileContext.Provider
@@ -164,12 +240,16 @@ export const ProfileProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeProfile,
         isLoadingProfiles,
         isSelectorOpen,
+        needsSetup,
+        availableJellyfinUsers,
         openSelector,
         closeSelector,
         selectProfile,
         createProfile,
         deleteProfile,
+        importProfiles,
         refreshProfiles: fetchProfiles,
+        fetchAvailableJellyfinUsers,
       }}
     >
       {children}

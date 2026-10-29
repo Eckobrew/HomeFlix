@@ -1,40 +1,112 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useProfile } from '@/context/ProfileContext';
 import { PROFILE_PALETTES, getInitials } from '@/lib/profile-constants';
-import { X, Check, ShieldCheck, Plus, Trash2, Loader2, Settings, ArrowLeft } from 'lucide-react';
+import {
+  X,
+  Check,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Loader2,
+  Settings,
+  ArrowLeft,
+  Download,
+  Users,
+} from 'lucide-react';
 
 export const ProfileSelectorModal: React.FC = () => {
   const {
     profiles,
     activeProfile,
     isSelectorOpen,
+    needsSetup,
+    availableJellyfinUsers,
     closeSelector,
     selectProfile,
     createProfile,
     deleteProfile,
+    importProfiles,
+    fetchAvailableJellyfinUsers,
   } = useProfile();
 
   const [isManageMode, setIsManageMode] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [isImportMode, setIsImportMode] = useState(false);
+  const [selectedImportIds, setSelectedImportIds] = useState<string[]>([]);
   const [newProfileName, setNewProfileName] = useState('');
-  const [selectedPaletteIndex, setSelectedPaletteIndex] = useState(2); // default nice color
+  const [selectedPaletteIndex, setSelectedPaletteIndex] = useState(2);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Automatically open import mode on first run if setup is needed
+  useEffect(() => {
+    if (needsSetup) {
+      setIsImportMode(true);
+      fetchAvailableJellyfinUsers();
+    }
+  }, [needsSetup, fetchAvailableJellyfinUsers]);
+
+  // Unimported Jellyfin users (available on Jellyfin but not yet added in HomeFlix)
+  const unimportedJellyfinUsers = useMemo(() => {
+    return availableJellyfinUsers.filter(
+      (jUser) =>
+        !profiles.some(
+          (p) => p.id === jUser.id || (p.jellyfinUserId && p.jellyfinUserId === jUser.id)
+        )
+    );
+  }, [availableJellyfinUsers, profiles]);
+
+  // Pre-select all available users if first run and none selected yet
+  useEffect(() => {
+    if (needsSetup && availableJellyfinUsers.length > 0 && selectedImportIds.length === 0) {
+      // Default to selecting all or the first user
+      setSelectedImportIds(availableJellyfinUsers.map((u) => u.id));
+    }
+  }, [needsSetup, availableJellyfinUsers, selectedImportIds.length]);
+
   if (!isSelectorOpen) return null;
+
+  const toggleImportSelection = (id: string) => {
+    setSelectedImportIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleExecuteImport = async () => {
+    if (selectedImportIds.length === 0) return;
+    try {
+      setIsSubmitting(true);
+      setErrorMsg('');
+      const success = await importProfiles(selectedImportIds);
+      if (success) {
+        setIsImportMode(false);
+        setIsManageMode(false);
+      } else {
+        setErrorMsg('Failed to import selected profiles.');
+      }
+    } catch {
+      setErrorMsg('Error importing profiles.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleStartCreate = () => {
     setNewProfileName('');
     setSelectedPaletteIndex(profiles.length % PROFILE_PALETTES.length);
     setErrorMsg('');
+    setIsImportMode(false);
     setIsCreating(true);
   };
 
   const handleCancelCreate = () => {
     setIsCreating(false);
     setErrorMsg('');
+    if (needsSetup) {
+      setIsImportMode(true);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -51,6 +123,7 @@ export const ProfileSelectorModal: React.FC = () => {
       const created = await createProfile(trimmed, selectedPaletteIndex);
       if (created) {
         setIsCreating(false);
+        setIsImportMode(false);
         setIsManageMode(false);
       } else {
         setErrorMsg('Failed to create profile. Please try again.');
@@ -74,8 +147,8 @@ export const ProfileSelectorModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/92 backdrop-blur-md transition-all animate-in fade-in duration-200 p-4 overflow-y-auto">
-      {/* Optional dismiss button if a profile is already active */}
-      {activeProfile && !isCreating && (
+      {/* Optional dismiss button (disabled on first run when setup is required) */}
+      {!needsSetup && activeProfile && !isCreating && !isImportMode && (
         <button
           onClick={() => {
             setIsManageMode(false);
@@ -88,8 +161,172 @@ export const ProfileSelectorModal: React.FC = () => {
         </button>
       )}
 
-      {/* CREATE PROFILE FORM VIEW */}
-      {isCreating ? (
+      {/* 1. IMPORT PROFILES VIEW (First run setup or manual import) */}
+      {isImportMode ? (
+        <div className="w-full max-w-2xl mx-auto bg-neutral-900/90 border border-neutral-800 p-6 sm:p-8 rounded-2xl shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between">
+            {!needsSetup ? (
+              <button
+                onClick={() => setIsImportMode(false)}
+                className="text-neutral-400 hover:text-white p-1 rounded-full hover:bg-neutral-800 transition-colors"
+                title="Back"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            ) : (
+              <div className="w-6" />
+            )}
+            <h2 className="text-xl sm:text-3xl font-bold text-white">
+              {needsSetup ? 'Set Up Your Profiles' : 'Import from Jellyfin'}
+            </h2>
+            <div className="w-6" />
+          </div>
+
+          <p className="text-xs sm:text-sm text-neutral-400 max-w-lg mx-auto">
+            {needsSetup
+              ? 'Welcome to HomeFlix! Select which Jellyfin user profile(s) you would like to import into HomeFlix:'
+              : 'Select existing Jellyfin user profile(s) to add to HomeFlix:'}
+          </p>
+
+          {/* Jellyfin Users List */}
+          {(needsSetup ? availableJellyfinUsers : unimportedJellyfinUsers).length > 0 ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 sm:gap-4 max-h-[320px] overflow-y-auto p-1">
+                {(needsSetup ? availableJellyfinUsers : unimportedJellyfinUsers).map((user) => {
+                  const isSelected = selectedImportIds.includes(user.id);
+
+                  return (
+                    <button
+                      key={user.id}
+                      type="button"
+                      onClick={() => toggleImportSelection(user.id)}
+                      className={`relative flex flex-col items-center p-3.5 rounded-xl border-2 transition-all duration-200 cursor-pointer ${
+                        isSelected
+                          ? 'border-red-500 bg-red-950/20 shadow-lg scale-102 ring-1 ring-red-500/50'
+                          : 'border-neutral-800 bg-neutral-950/60 hover:border-neutral-600'
+                      }`}
+                    >
+                      {/* Checkbox indicator */}
+                      <div
+                        className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center border transition-colors ${
+                          isSelected
+                            ? 'bg-red-600 border-red-500 text-white'
+                            : 'border-neutral-600 bg-black/40'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} className="stroke-[3]" />}
+                      </div>
+
+                      {/* Avatar */}
+                      <div
+                        className={`w-14 h-14 sm:w-16 sm:h-16 rounded-xl flex items-center justify-center font-bold text-lg sm:text-xl text-white shadow bg-gradient-to-br ${
+                          user.avatarColor
+                        }`}
+                      >
+                        {user.avatarUrl ? (
+                          <img
+                            src={user.avatarUrl}
+                            alt={user.name}
+                            className="w-full h-full object-cover rounded-xl"
+                          />
+                        ) : (
+                          <span>{user.initials}</span>
+                        )}
+                      </div>
+
+                      {/* Name */}
+                      <span className="mt-2 text-xs sm:text-sm font-semibold text-white capitalize truncate max-w-full">
+                        {user.name}
+                      </span>
+
+                      {user.isAdministrator && (
+                        <span className="text-[10px] text-amber-400 font-medium flex items-center space-x-0.5 mt-0.5">
+                          <ShieldCheck size={10} />
+                          <span>Admin</span>
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Selection Summary & Select All Toggle */}
+              <div className="flex items-center justify-between text-xs text-neutral-400 px-1 pt-1">
+                <span>
+                  {selectedImportIds.length} profile
+                  {selectedImportIds.length === 1 ? '' : 's'} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pool = needsSetup ? availableJellyfinUsers : unimportedJellyfinUsers;
+                    if (selectedImportIds.length === pool.length) {
+                      setSelectedImportIds([]);
+                    } else {
+                      setSelectedImportIds(pool.map((u) => u.id));
+                    }
+                  }}
+                  className="text-red-400 hover:text-red-300 font-medium"
+                >
+                  {selectedImportIds.length ===
+                  (needsSetup ? availableJellyfinUsers : unimportedJellyfinUsers).length
+                    ? 'Deselect All'
+                    : 'Select All'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 rounded-xl bg-neutral-950/60 border border-neutral-800 text-center space-y-2">
+              <Users size={32} className="mx-auto text-neutral-500" />
+              <p className="text-sm font-medium text-neutral-300">
+                {needsSetup
+                  ? 'No Jellyfin accounts found or server is unreachable.'
+                  : 'All available Jellyfin accounts have already been imported.'}
+              </p>
+              <p className="text-xs text-neutral-500">
+                You can create a new custom profile below instead.
+              </p>
+            </div>
+          )}
+
+          {errorMsg && <p className="text-xs text-red-500 font-medium">{errorMsg}</p>}
+
+          {/* Action buttons */}
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={handleExecuteImport}
+              disabled={isSubmitting || selectedImportIds.length === 0}
+              className="w-full py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-bold shadow-lg transition flex items-center justify-center space-x-2"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Importing Profiles...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={16} />
+                  <span>
+                    Import {selectedImportIds.length > 0 ? `(${selectedImportIds.length}) ` : ''}
+                    Selected Profile{selectedImportIds.length === 1 ? '' : 's'}
+                  </span>
+                </>
+              )}
+            </button>
+
+            <div className="flex items-center justify-center space-x-4 text-xs">
+              <button
+                type="button"
+                onClick={handleStartCreate}
+                className="text-neutral-400 hover:text-white underline underline-offset-4"
+              >
+                + Create a new profile manually
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : isCreating ? (
+        /* 2. CREATE PROFILE FORM VIEW */
         <div className="w-full max-w-md mx-auto bg-neutral-900/90 border border-neutral-800 p-6 sm:p-8 rounded-2xl shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-150">
           <div className="flex items-center justify-between">
             <button
@@ -100,7 +337,7 @@ export const ProfileSelectorModal: React.FC = () => {
               <ArrowLeft size={20} />
             </button>
             <h2 className="text-xl sm:text-2xl font-bold text-white">Add Profile</h2>
-            <div className="w-6" /> {/* spacer */}
+            <div className="w-6" />
           </div>
 
           <form onSubmit={handleSaveProfile} className="space-y-6">
@@ -165,11 +402,6 @@ export const ProfileSelectorModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Sync Notice */}
-            <p className="text-[11px] text-neutral-400 text-left bg-neutral-950/60 p-2.5 rounded-lg border border-neutral-800">
-              💡 This profile will be saved to HomeFlix. If it doesn&apos;t exist in Jellyfin yet, HomeFlix will automatically create it so your watch history is tracked.
-            </p>
-
             {/* Form Action Buttons */}
             <div className="flex items-center space-x-3 pt-2">
               <button
@@ -198,7 +430,7 @@ export const ProfileSelectorModal: React.FC = () => {
           </form>
         </div>
       ) : (
-        /* MAIN "WHO'S WATCHING?" GRID VIEW */
+        /* 3. MAIN "WHO'S WATCHING?" GRID VIEW */
         <div className="w-full max-w-4xl text-center space-y-8 sm:space-y-12">
           {/* Header Title */}
           <div className="space-y-2">
@@ -305,10 +537,25 @@ export const ProfileSelectorModal: React.FC = () => {
           </div>
 
           {/* Action Footer Buttons */}
-          <div className="flex items-center justify-center space-x-4 pt-4">
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
+            {/* Import from Jellyfin button if unimported users exist */}
+            {unimportedJellyfinUsers.length > 0 && (
+              <button
+                onClick={() => {
+                  fetchAvailableJellyfinUsers();
+                  setSelectedImportIds([]);
+                  setIsImportMode(true);
+                }}
+                className="px-4 py-2 border border-neutral-700 hover:border-neutral-400 text-neutral-300 hover:text-white text-xs sm:text-sm font-semibold transition-colors rounded flex items-center space-x-1.5"
+              >
+                <Download size={14} />
+                <span>Import from Jellyfin ({unimportedJellyfinUsers.length})</span>
+              </button>
+            )}
+
             <button
               onClick={() => setIsManageMode(!isManageMode)}
-              className="px-5 py-2 border border-neutral-700 hover:border-neutral-400 text-neutral-400 hover:text-white text-xs sm:text-sm font-semibold transition-colors rounded flex items-center space-x-1.5"
+              className="px-4 py-2 border border-neutral-700 hover:border-neutral-400 text-neutral-400 hover:text-white text-xs sm:text-sm font-semibold transition-colors rounded flex items-center space-x-1.5"
             >
               <Settings size={14} />
               <span>{isManageMode ? 'Back to Selection' : 'Manage Profiles'}</span>
