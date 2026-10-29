@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Server } from 'lucide-react';
+import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User, Plus, Server, LogOut } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
@@ -14,6 +14,8 @@ interface NavbarProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   onOpenServerSetup?: () => void;
+  isExternal?: boolean;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -25,6 +27,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onTabChange,
   onOpenServerSetup,
+  isExternal,
+  onLogout,
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -339,6 +343,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Server size={15} className="text-neutral-400" />
                   <span>Server Settings</span>
                 </button>
+
+                {isExternal && onLogout && (
+                  <>
+                    <div className="border-t border-neutral-800/80 my-1" />
+                    <button
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        onLogout();
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2 text-red-400 hover:text-red-300 hover:bg-red-950/40 transition-colors text-xs cursor-pointer"
+                    >
+                      <LogOut size={15} className="text-red-400" />
+                      <span>Sign Out</span>
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

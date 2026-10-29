@@ -45,24 +45,24 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     // Dynamically calculate whether the card is at the edge of the visible scroll track
     if (cardRef.current) {
       const cardRect = cardRef.current.getBoundingClientRect();
-      const parentScroll = cardRef.current.closest('.overflow-x-auto');
-      if (parentScroll) {
-        const parentRect = parentScroll.getBoundingClientRect();
-        if (cardRect.left - parentRect.left < 60) {
-          setAlignment('left');
-        } else if (parentRect.right - cardRect.right < 60) {
-          setAlignment('right');
-        } else {
-          setAlignment('center');
+      const parentScroll = cardRef.current.closest('.overflow-x-auto') as HTMLElement | null;
+      const viewportRight = parentScroll ? parentScroll.getBoundingClientRect().right : window.innerWidth;
+      const viewportLeft = parentScroll ? parentScroll.getBoundingClientRect().left : 0;
+      const spaceRight = viewportRight - cardRect.right;
+      const spaceLeft = cardRect.left - viewportLeft;
+
+      if (spaceRight < 140) {
+        setAlignment('right');
+        if (parentScroll && spaceRight < 50) {
+          parentScroll.scrollBy({ left: 70 - spaceRight, behavior: 'smooth' });
+        }
+      } else if (spaceLeft < 100) {
+        setAlignment('left');
+        if (parentScroll && spaceLeft < 50) {
+          parentScroll.scrollBy({ left: spaceLeft - 70, behavior: 'smooth' });
         }
       } else {
-        if (cardRect.left < 80) {
-          setAlignment('left');
-        } else if (window.innerWidth - cardRect.right < 80) {
-          setAlignment('right');
-        } else {
-          setAlignment('center');
-        }
+        setAlignment('center');
       }
     }
 
@@ -92,6 +92,15 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const handleLoadedMetadata = () => {
     if (!videoRef.current) return;
     const dur = videoRef.current.duration;
+
+    // If the stream URL already includes ticks or starts at resume position, don't seek client-side!
+    const hasStreamTicks = item.videoStreamUrl?.includes('ticks=');
+    if (hasStreamTicks) {
+      previewStartTimeRef.current = 0;
+      videoRef.current.play().catch(() => {});
+      return;
+    }
+
     let seekTime = 45; // default 45s in
 
     if (item.playbackPositionTicks && item.playbackPositionTicks > 0) {
@@ -113,7 +122,13 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     }
 
     previewStartTimeRef.current = seekTime;
-    videoRef.current.currentTime = seekTime;
+    try {
+      if (dur && isFinite(dur) && seekTime > 0 && seekTime < dur) {
+        videoRef.current.currentTime = seekTime;
+      }
+    } catch {
+      // Ignore seek errors
+    }
     videoRef.current.play().catch(() => {});
   };
 
@@ -231,7 +246,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               ? 'left-0 origin-left'
               : alignment === 'right'
               ? 'right-0 origin-right'
-              : '-left-6 md:-left-8 origin-center'
+              : 'left-1/2 -translate-x-1/2 origin-center'
           }`}
           onClick={(e) => e.stopPropagation()}
         >
@@ -357,7 +372,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                   e.stopPropagation();
                   onOpenModal(item);
                 }}
-                className="w-8 h-8 rounded-full border border-gray-400 hover:border-white text-gray-300 hover:text-white flex items-center justify-center transition-colors"
+                className="w-8 h-8 shrink-0 rounded-full border border-gray-400 hover:border-white text-gray-300 hover:text-white flex items-center justify-center transition-colors"
                 title="Episode & Details Info"
               >
                 <ChevronDown size={18} />

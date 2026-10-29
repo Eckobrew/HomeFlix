@@ -70,7 +70,7 @@ export const MediaRow: React.FC<MediaRowProps> = ({
         <div
           ref={rowRef}
           onScroll={handleScroll}
-          className="flex items-center space-x-2 md:space-x-3 overflow-x-auto no-scrollbar scroll-smooth py-28 md:py-32 px-2 md:px-3 pointer-events-none"
+          className="flex items-center space-x-2 md:space-x-3 overflow-x-auto no-scrollbar scroll-smooth py-28 md:py-32 px-3 md:px-8 pointer-events-none"
         >
           {items.map((item, index) => (
             <div key={`${item.id}-${index}`} className="shrink-0 pointer-events-auto">
@@ -85,6 +85,8 @@ export const MediaRow: React.FC<MediaRowProps> = ({
               />
             </div>
           ))}
+          {/* End spacer so the last card has clearance for its hover expansion */}
+          <div className="w-8 md:w-16 shrink-0 pointer-events-none" />
         </div>
 
         {/* Right Arrow Button */}

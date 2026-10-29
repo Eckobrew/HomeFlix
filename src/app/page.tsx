@@ -12,6 +12,7 @@ import { MediaItem, MediaRowSection, Episode } from '@/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { useProfile } from '@/context/ProfileContext';
 import { InitialSetupModal } from '@/components/InitialSetupModal';
+import { AuthModal } from '@/components/AuthModal';
 
 export default function Home() {
   const { activeProfile } = useProfile();
@@ -38,6 +39,46 @@ export default function Home() {
     jellyfinUrl: '',
     hasJellyfinKey: false,
   });
+
+  // Local/Tailscale vs External Internet Authentication State
+  const [authStatus, setAuthStatus] = useState<{
+    requiresAuth: boolean;
+    isLocalOrTailscale: boolean;
+    isAuthenticated: boolean;
+  }>({
+    requiresAuth: false,
+    isLocalOrTailscale: true,
+    isAuthenticated: true,
+  });
+
+  const checkAuth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth');
+      if (res.ok) {
+        const data = await res.json();
+        setAuthStatus({
+          requiresAuth: Boolean(data.requiresAuth),
+          isLocalOrTailscale: Boolean(data.isLocalOrTailscale),
+          isAuthenticated: Boolean(data.isAuthenticated),
+        });
+      }
+    } catch (e) {
+      console.error('Failed to check auth status:', e);
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'logout' }),
+      });
+      checkAuth();
+    } catch (e) {
+      console.error('Logout failed:', e);
+    }
+  };
 
   const loadHomeData = useCallback(async (userId?: string) => {
     try {
@@ -75,8 +116,9 @@ export default function Home() {
   }, [activeProfile?.id]);
 
   useEffect(() => {
+    checkAuth();
     loadHomeData(activeProfile?.id);
-  }, [loadHomeData, activeProfile?.id]);
+  }, [checkAuth, loadHomeData, activeProfile?.id]);
 
   useEffect(() => {
     const handleProfileChanged = (event: any) => {
@@ -305,6 +347,8 @@ export default function Home() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         onOpenServerSetup={() => setIsServerSetupOpen(true)}
+        isExternal={!authStatus.isLocalOrTailscale}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
@@ -427,6 +471,17 @@ export default function Home() {
         onClose={() => setIsServerSetupOpen(false)}
         onComplete={() => loadHomeData()}
       />
+
+      {/* External Authentication Modal (Jellyfin Auth Wall) */}
+      {authStatus.requiresAuth && !authStatus.isAuthenticated && (
+        <AuthModal
+          appName={serverConfig.appName}
+          onSuccess={() => {
+            checkAuth();
+            loadHomeData();
+          }}
+        />
+      )}
     </main>
   );
 }

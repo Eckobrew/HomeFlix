@@ -681,7 +681,10 @@ export class JellyfinClient {
         name: p.Name,
         role: p.Role || p.Type,
       })),
-      videoStreamUrl: isMovie || isEpisode ? this.getStreamUrl(item.Id) : undefined,
+      videoStreamUrl:
+        isMovie || isEpisode
+          ? `/api/preview-stream?itemId=${item.Id}${playbackTicks > 0 ? `&ticks=${playbackTicks}` : ''}`
+          : undefined,
     };
   }
 
@@ -855,12 +858,13 @@ export class JellyfinClient {
           const nextUp = nextUpMap.get(series.id);
           const epId = nextUp?.epId || await this.getSeriesFirstPlayableEpisodeId(series.id);
           if (epId) {
-            series.videoStreamUrl = this.getStreamUrl(epId);
+            const ticks = nextUp?.positionTicks && nextUp.positionTicks > 0 ? nextUp.positionTicks : 0;
+            series.videoStreamUrl = `/api/preview-stream?itemId=${epId}${ticks > 0 ? `&ticks=${ticks}` : ''}`;
             series.playableEpisodeId = epId;
-            if (nextUp?.positionTicks && nextUp.positionTicks > 0) {
-              series.playbackPositionTicks = nextUp.positionTicks;
-              if (nextUp.totalTicks && nextUp.totalTicks > 0) {
-                series.progressPercent = Math.round((nextUp.positionTicks / nextUp.totalTicks) * 100);
+            if (ticks > 0) {
+              series.playbackPositionTicks = ticks;
+              if (nextUp?.totalTicks && nextUp.totalTicks > 0) {
+                series.progressPercent = Math.round((ticks / nextUp.totalTicks) * 100);
               }
             }
           }
