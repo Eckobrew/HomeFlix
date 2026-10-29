@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import Script from "next/script";
 import "./globals.css";
+import { ProfileProvider } from "@/context/ProfileContext";
+import { ProfileSelectorModal } from "@/components/ProfileSelectorModal";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -58,7 +60,10 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#141414] text-white`}
       >
-        {children}
+        <ProfileProvider>
+          {children}
+          <ProfileSelectorModal />
+        </ProfileProvider>
       </body>
     </html>
   );

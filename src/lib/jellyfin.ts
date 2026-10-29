@@ -1,4 +1,4 @@
-import { MediaItem, Season, Episode, SubtitleTrack } from '@/types';
+import { MediaItem, Season, Episode, SubtitleTrack, UserProfile } from '@/types';
 import { getServerConfig } from './config';
 
 export interface JellyfinItem {
@@ -116,6 +116,96 @@ export class JellyfinClient {
       console.error('Failed to get Jellyfin users', e);
     }
     return '';
+  }
+
+  getUserImageUrl(userId: string): string {
+    if (!this.url || !userId) return '';
+    return `${this.url}/Users/${userId}/Images/Primary?quality=90`;
+  }
+
+  async getUsers(): Promise<UserProfile[]> {
+    if (!this.isConfigured()) {
+      return [
+        {
+          id: 'mock-nathan',
+          name: 'Nathan',
+          avatarColor: 'from-red-600 to-red-800',
+          avatarBg: 'bg-red-600',
+          initials: 'NA',
+          isAdministrator: true,
+        },
+        {
+          id: 'mock-mirelle',
+          name: 'Mirelle',
+          avatarColor: 'from-purple-600 to-pink-600',
+          avatarBg: 'bg-purple-600',
+          initials: 'MI',
+          isAdministrator: false,
+        },
+      ];
+    }
+
+    try {
+      const res = await fetch(`${this.url}/Users`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 60 },
+      });
+
+      if (!res.ok) {
+        return [];
+      }
+
+      const rawUsers = await res.json();
+      if (!Array.isArray(rawUsers)) return [];
+
+      const palettes = [
+        { avatarColor: 'from-red-600 to-red-800', avatarBg: 'bg-red-600' },
+        { avatarColor: 'from-purple-600 to-pink-600', avatarBg: 'bg-purple-600' },
+        { avatarColor: 'from-sky-500 to-blue-700', avatarBg: 'bg-blue-600' },
+        { avatarColor: 'from-emerald-500 to-teal-700', avatarBg: 'bg-emerald-600' },
+        { avatarColor: 'from-amber-500 to-orange-700', avatarBg: 'bg-amber-600' },
+        { avatarColor: 'from-rose-500 to-red-700', avatarBg: 'bg-rose-600' },
+        { avatarColor: 'from-indigo-500 to-purple-700', avatarBg: 'bg-indigo-600' },
+      ];
+
+      return rawUsers.map((u: any, idx: number) => {
+        const lowerName = (u.Name || '').toLowerCase();
+        let palette = palettes[idx % palettes.length];
+
+        if (lowerName.includes('nathan')) {
+          palette = palettes[0]; // Red
+        } else if (lowerName.includes('mirelle')) {
+          palette = palettes[1]; // Purple/Pink
+        } else if (lowerName.includes('david')) {
+          palette = palettes[2]; // Sky/Blue
+        } else if (lowerName.includes('harry')) {
+          palette = palettes[3]; // Emerald
+        } else if (lowerName.includes('messy')) {
+          palette = palettes[4]; // Amber
+        }
+
+        const initials = (u.Name || 'HF')
+          .trim()
+          .split(/\s+/)
+          .map((n: string) => n[0])
+          .join('')
+          .slice(0, 2)
+          .toUpperCase() || 'HF';
+
+        return {
+          id: u.Id,
+          name: u.Name,
+          avatarColor: palette.avatarColor,
+          avatarBg: palette.avatarBg,
+          initials,
+          avatarUrl: u.PrimaryImageTag ? `${this.url}/Users/${u.Id}/Images/Primary` : undefined,
+          isAdministrator: Boolean(u.Policy?.IsAdministrator),
+        };
+      });
+    } catch (e) {
+      console.error('Error fetching Jellyfin users:', e);
+      return [];
+    }
   }
 
   getImageUrl(itemId: string, type: 'Primary' | 'Backdrop' | 'Thumb' = 'Primary', maxWidth = 800): string {

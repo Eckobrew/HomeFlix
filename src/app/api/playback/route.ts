@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'itemId is required' }, { status: 400 });
   }
 
-  const jellyfin = new JellyfinClient();
+  const profileId = searchParams.get('userId') || request.cookies.get('homeflix_profile_id')?.value;
+  const jellyfin = new JellyfinClient(undefined, undefined, profileId);
   if (!jellyfin.isConfigured()) {
     return NextResponse.json(
       { error: 'Jellyfin is not configured' },

@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
 import {
@@ -13,8 +13,12 @@ import { MediaItem, MediaRowSection } from '@/types';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET() {
-  const jellyfin = new JellyfinClient();
+export async function GET(request: NextRequest) {
+  const profileId =
+    request.nextUrl.searchParams.get('userId') ||
+    request.cookies.get('homeflix_profile_id')?.value;
+
+  const jellyfin = new JellyfinClient(undefined, undefined, profileId);
   const seerr = new SeerrClient();
 
   const isJellyfinActive = jellyfin.isConfigured();

@@ -10,13 +10,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false }, { status: 400 });
     }
     const body = JSON.parse(text);
-    const { itemId, positionTicks, isPaused, isStopped } = body;
+    const { itemId, positionTicks, isPaused, isStopped, userId } = body;
 
     if (!itemId) {
       return NextResponse.json({ error: 'itemId is required' }, { status: 400 });
     }
 
-    const jellyfin = new JellyfinClient();
+    const profileId = userId || request.cookies.get('homeflix_profile_id')?.value;
+    const jellyfin = new JellyfinClient(undefined, undefined, profileId);
     if (!jellyfin.isConfigured()) {
       return NextResponse.json({ success: false });
     }

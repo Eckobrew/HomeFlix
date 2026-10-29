@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Search, X, Home, Tv, Film, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, X, Home, Tv, Film, Download, Users, ChevronDown, User } from 'lucide-react';
+import { useProfile } from '@/context/ProfileContext';
 
 interface NavbarProps {
   onSearchChange: (query: string) => void;
@@ -23,6 +24,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement>(null);
+
+  const { profiles, activeProfile, openSelector, selectProfile } = useProfile();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -32,6 +37,25 @@ export const Navbar: React.FC<NavbarProps> = ({
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // Close profile dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    if (isProfileMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isProfileMenuOpen]);
 
   return (
     <>
@@ -170,9 +194,124 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* User profile avatar */}
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded bg-red-700 overflow-hidden border border-red-500/50 flex items-center justify-center font-bold text-xs text-white shadow select-none">
-            HF
+          {/* User Profile Avatar & Dropdown */}
+          <div className="relative" ref={profileMenuRef}>
+            <button
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              className="flex items-center space-x-1.5 focus:outline-none group cursor-pointer"
+              aria-label="Profile menu"
+              title={activeProfile ? `Profile: ${activeProfile.name}` : 'Profiles'}
+            >
+              <div
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded overflow-hidden border border-white/20 flex items-center justify-center font-bold text-xs text-white shadow select-none transition-transform group-hover:scale-105 bg-gradient-to-br ${
+                  activeProfile?.avatarColor || 'from-red-600 to-red-800'
+                }`}
+              >
+                {activeProfile?.avatarUrl ? (
+                  <img
+                    src={activeProfile.avatarUrl}
+                    alt={activeProfile.name}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{activeProfile?.initials || 'HF'}</span>
+                )}
+              </div>
+              <ChevronDown
+                size={14}
+                className={`text-neutral-400 group-hover:text-white transition-transform hidden sm:block ${
+                  isProfileMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {/* Profile Dropdown Menu (Netflix-Style) */}
+            {isProfileMenuOpen && (
+              <div className="absolute right-0 mt-2 w-56 rounded-md bg-[#191919] border border-neutral-800 shadow-2xl py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Active user header */}
+                <div className="px-3 py-2 border-b border-neutral-800/80">
+                  <div className="flex items-center space-x-2.5">
+                    <div
+                      className={`w-8 h-8 rounded shrink-0 flex items-center justify-center font-bold text-xs text-white bg-gradient-to-br ${
+                        activeProfile?.avatarColor || 'from-red-600 to-red-800'
+                      }`}
+                    >
+                      {activeProfile?.avatarUrl ? (
+                        <img
+                          src={activeProfile.avatarUrl}
+                          alt={activeProfile.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span>{activeProfile?.initials || 'HF'}</span>
+                      )}
+                    </div>
+                    <div className="truncate">
+                      <p className="text-white font-semibold text-sm truncate capitalize">
+                        {activeProfile?.name || 'HomeFlix User'}
+                      </p>
+                      <p className="text-[11px] text-emerald-400 flex items-center space-x-1">
+                        <span>Active Profile</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Switch to other profiles */}
+                {profiles.filter((p) => p.id !== activeProfile?.id).length > 0 && (
+                  <div className="py-1">
+                    <div className="px-3 py-1 text-[10px] uppercase font-bold text-neutral-400 tracking-wider">
+                      Switch Profile
+                    </div>
+                    {profiles
+                      .filter((p) => p.id !== activeProfile?.id)
+                      .map((profile) => (
+                        <button
+                          key={profile.id}
+                          onClick={() => {
+                            selectProfile(profile.id);
+                            setIsProfileMenuOpen(false);
+                          }}
+                          className="w-full px-3 py-1.5 flex items-center space-x-2.5 hover:bg-neutral-800/80 text-left transition-colors cursor-pointer group"
+                        >
+                          <div
+                            className={`w-6 h-6 rounded shrink-0 flex items-center justify-center font-bold text-[10px] text-white bg-gradient-to-br ${
+                              profile.avatarColor
+                            } group-hover:ring-1 group-hover:ring-white`}
+                          >
+                            {profile.avatarUrl ? (
+                              <img
+                                src={profile.avatarUrl}
+                                alt={profile.name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <span>{profile.initials}</span>
+                            )}
+                          </div>
+                          <span className="text-neutral-300 group-hover:text-white capitalize text-xs truncate">
+                            {profile.name}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+
+                <div className="border-t border-neutral-800/80 my-1" />
+
+                {/* Open Who's watching modal */}
+                <button
+                  onClick={() => {
+                    openSelector();
+                    setIsProfileMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 flex items-center space-x-2 text-neutral-300 hover:text-white hover:bg-neutral-800/80 transition-colors text-xs cursor-pointer"
+                >
+                  <Users size={15} className="text-neutral-400" />
+                  <span>Who&apos;s watching?</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </nav>
@@ -184,7 +323,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onTabChange('home');
             onSearchChange('');
           }}
-          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-2.5 transition-colors ${
             activeTab === 'home' && !searchQuery
               ? 'text-red-500 font-bold'
               : 'text-neutral-400 hover:text-white'
@@ -196,7 +335,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => onTabChange('series')}
-          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-2.5 transition-colors ${
             activeTab === 'series'
               ? 'text-red-500 font-bold'
               : 'text-neutral-400 hover:text-white'
@@ -208,7 +347,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => onTabChange('movies')}
-          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-2.5 transition-colors ${
             activeTab === 'movies'
               ? 'text-red-500 font-bold'
               : 'text-neutral-400 hover:text-white'
@@ -220,7 +359,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         <button
           onClick={() => onTabChange('requests')}
-          className={`flex flex-col items-center justify-center space-y-1 py-1 px-3 transition-colors ${
+          className={`flex flex-col items-center justify-center space-y-1 py-1 px-2.5 transition-colors ${
             activeTab === 'requests'
               ? 'text-red-500 font-bold'
               : 'text-neutral-400 hover:text-white'
@@ -228,6 +367,23 @@ export const Navbar: React.FC<NavbarProps> = ({
         >
           <Download size={19} />
           <span className="text-[10px] tracking-tight">Requests</span>
+        </button>
+
+        <button
+          onClick={openSelector}
+          className="flex flex-col items-center justify-center space-y-1 py-1 px-2.5 transition-colors text-neutral-400 hover:text-white"
+          title="Switch Profile"
+        >
+          <div
+            className={`w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold text-white bg-gradient-to-br ${
+              activeProfile?.avatarColor || 'from-red-600 to-red-800'
+            }`}
+          >
+            {activeProfile?.initials || <User size={13} />}
+          </div>
+          <span className="text-[10px] tracking-tight capitalize truncate max-w-[48px]">
+            {activeProfile?.name || 'Profile'}
+          </span>
         </button>
       </div>
     </>

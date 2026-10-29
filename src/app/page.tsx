@@ -10,8 +10,10 @@ import { RequestDialog } from '@/components/RequestDialog';
 import { SearchOverlay } from '@/components/SearchOverlay';
 import { MediaItem, MediaRowSection, Episode } from '@/types';
 import { Loader2, Sparkles } from 'lucide-react';
+import { useProfile } from '@/context/ProfileContext';
 
 export default function Home() {
+  const { activeProfile } = useProfile();
   const [hero, setHero] = useState<MediaItem | null>(null);
   const [heroItems, setHeroItems] = useState<MediaItem[]>([]);
   const [sections, setSections] = useState<MediaRowSection[]>([]);
@@ -33,11 +35,13 @@ export default function Home() {
     hasJellyfinKey: false,
   });
 
-  const loadHomeData = useCallback(async () => {
+  const loadHomeData = useCallback(async (userId?: string) => {
     try {
       setLoading(true);
+      const targetUserId = userId || activeProfile?.id;
+      const homeUrl = targetUserId ? `/api/home?userId=${targetUserId}` : '/api/home';
       const [homeRes, configRes] = await Promise.all([
-        fetch('/api/home'),
+        fetch(homeUrl),
         fetch('/api/config'),
       ]);
 
@@ -60,10 +64,22 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeProfile?.id]);
 
   useEffect(() => {
-    loadHomeData();
+    loadHomeData(activeProfile?.id);
+  }, [loadHomeData, activeProfile?.id]);
+
+  useEffect(() => {
+    const handleProfileChanged = (event: any) => {
+      const newProfile = event.detail?.profile;
+      if (newProfile?.id) {
+        loadHomeData(newProfile.id);
+      }
+    };
+
+    window.addEventListener('homeflix-profile-changed', handleProfileChanged);
+    return () => window.removeEventListener('homeflix-profile-changed', handleProfileChanged);
   }, [loadHomeData]);
 
   // Handlers

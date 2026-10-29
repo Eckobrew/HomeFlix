@@ -18,7 +18,11 @@ export async function GET(
 ) {
   const { id } = params;
 
-  const jellyfin = new JellyfinClient();
+  const profileId =
+    request.nextUrl.searchParams.get('userId') ||
+    request.cookies.get('homeflix_profile_id')?.value;
+
+  const jellyfin = new JellyfinClient(undefined, undefined, profileId);
 
   if (jellyfin.isConfigured() && !id.startsWith('seerr-') && !id.startsWith('hero-') && !id.startsWith('cw-') && !id.startsWith('mov-') && !id.startsWith('ser-')) {
     const item = await jellyfin.getItemDetails(id);

@@ -91,6 +91,16 @@ export interface ServerConfig {
   isConfigured: boolean;
 }
 
+export interface UserProfile {
+  id: string;
+  name: string;
+  avatarColor: string; // Tailwind gradient e.g. "from-red-600 to-red-800"
+  avatarBg: string;    // Tailwind bg color e.g. "bg-red-600"
+  initials: string;    // e.g. "NA"
+  avatarUrl?: string;  // Jellyfin avatar image URL if available
+  isAdministrator?: boolean;
+}
+
 export interface RequestMediaPayload {
   mediaType: 'movie' | 'tv';
   mediaId: number; // TMDB ID
