@@ -73,6 +73,19 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [isCastConnecting, setIsCastConnecting] = useState(false);
   const [castDeviceName, setCastDeviceName] = useState<string>('');
 
+  const currentTimeRef = useRef(0);
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
+  const streamUrlRef = useRef(streamUrl);
+  useEffect(() => {
+    streamUrlRef.current = streamUrl;
+  }, [streamUrl]);
+
+  const lastCastedUrlRef = useRef<string>('');
+  const lastCastedKeyRef = useRef<string>('');
+
   // Active episode / target ID
   const [activeEpisode, setActiveEpisode] = useState<Episode | undefined>(episode);
   const [activePlayableId, setActivePlayableId] = useState<string | undefined>(
@@ -234,10 +247,13 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       const deviceName = session.getCastDevice()?.friendlyName;
       if (deviceName) setCastDeviceName(deviceName);
 
-      const rawUrl = streamUrl || videoRef.current?.currentSrc || videoRef.current?.src;
+      const rawUrl = streamUrlRef.current || videoRef.current?.currentSrc || videoRef.current?.src;
       if (!rawUrl) return;
 
       const absoluteMediaUrl = new URL(rawUrl, window.location.href).href;
+      lastCastedUrlRef.current = absoluteMediaUrl;
+      lastCastedKeyRef.current = (activeEpisode ? `${item.id}-${activeEpisode.id}` : item.id) + '-' + rawUrl;
+
       const isHls = absoluteMediaUrl.includes('.m3u8');
       const contentType = isHls ? 'application/x-mpegURL' : 'video/mp4';
 
@@ -269,15 +285,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       }
 
       const request = new (window as any).chrome.cast.media.LoadRequest(mediaInfo);
-      request.currentTime = videoRef.current?.currentTime || currentTime || 0;
-      request.autoplay = isPlaying;
-
-      if (selectedSubtitleId) {
-        const subIdx = subtitles.findIndex((s) => s.id === selectedSubtitleId);
-        if (subIdx !== -1) {
-          request.activeTrackIds = [subIdx + 1];
-        }
-      }
+      request.currentTime = videoRef.current?.currentTime || currentTimeRef.current || 0;
+      request.autoplay = true;
 
       session.loadMedia(request).then(
         () => {
@@ -294,8 +303,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       );
     } catch (e) {
       console.error('Cast media load exception:', e);
+      setIsCastConnecting(false);
     }
-  }, [streamUrl, currentTitle, item, activeEpisode, currentTime, isPlaying, subtitles, selectedSubtitleId]);
+  }, [currentTitle, item, activeEpisode, subtitles]);
 
   // Disconnect from Chromecast session
   const handleDisconnectCast = useCallback(() => {
@@ -312,8 +322,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     setIsCasting(false);
     setIsCastConnecting(false);
     setCastDeviceName('');
+    lastCastedUrlRef.current = '';
+    lastCastedKeyRef.current = '';
     if (videoRef.current) {
-      videoRef.current.currentTime = currentTime;
+      videoRef.current.currentTime = currentTimeRef.current || currentTime;
       if (isPlaying) {
         videoRef.current.play().catch(console.error);
       }
@@ -478,10 +490,18 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               event.sessionState === SessionState.SESSION_STARTED ||
               event.sessionState === SessionState.SESSION_RESUMED
             ) {
+              setIsCasting(true);
+              setIsCastConnecting(false);
+              const session = castContext.getCurrentSession();
+              const dev = session?.getCastDevice()?.friendlyName;
+              if (dev) setCastDeviceName(dev);
               loadCastMedia();
             } else if (event.sessionState === SessionState.SESSION_ENDED) {
               setIsCasting(false);
+              setIsCastConnecting(false);
               setCastDeviceName('');
+              lastCastedUrlRef.current = '';
+              lastCastedKeyRef.current = '';
             }
           }
         );
@@ -533,12 +553,16 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     };
   }, [isCasting, isScrubbing]);
 
-  // Auto-reload on Chromecast when episode changes while casting
+  // Auto-reload on Chromecast ONLY when media/episode actually changes while casting
   useEffect(() => {
-    if (isCasting && streamUrl) {
-      loadCastMedia();
+    if (isCasting && streamUrl && lastCastedKeyRef.current) {
+      const currentItemKey = (activeEpisode ? `${item.id}-${activeEpisode.id}` : item.id) + '-' + streamUrl;
+      if (lastCastedKeyRef.current !== currentItemKey) {
+        lastCastedKeyRef.current = currentItemKey;
+        loadCastMedia();
+      }
     }
-  }, [streamUrl, isCasting, loadCastMedia]);
+  }, [streamUrl, activeEpisode, item.id, isCasting, loadCastMedia]);
 
   // Resolve known media duration in seconds
   const knownDurationSeconds =
@@ -1390,20 +1414,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           </div>
         </div>
 
-        {/* Center Floating Play/Pause for Mobile & Quick Touch */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <button
-            onClick={togglePlay}
-            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white flex items-center justify-center pointer-events-auto hover:scale-110 active:scale-90 transition-all shadow-2xl backdrop-blur-sm"
-            title={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? (
-              <Pause className="w-6 h-6 sm:w-7 sm:h-7 fill-white" />
-            ) : (
-              <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-white ml-1" />
-            )}
-          </button>
-        </div>
+        {/* Center Floating Play/Pause for Mobile & Quick Touch (Hidden while casting) */}
+        {!isCasting && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <button
+              onClick={togglePlay}
+              className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-black/60 hover:bg-black/80 border border-white/20 text-white flex items-center justify-center pointer-events-auto hover:scale-110 active:scale-90 transition-all shadow-2xl backdrop-blur-sm"
+              title={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? (
+                <Pause className="w-6 h-6 sm:w-7 sm:h-7 fill-white" />
+              ) : (
+                <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-white ml-1" />
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Bottom Controls Bar */}
         <div
