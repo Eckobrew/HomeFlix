@@ -18,6 +18,7 @@ import {
   X,
   AlertCircle,
   Cast,
+  Download,
 } from 'lucide-react';
 import { MediaItem, Episode, SubtitleTrack } from '@/types';
 
@@ -28,6 +29,9 @@ interface BuiltinPlayerProps {
   onNextEpisode?: () => void;
   jellyfinServerUrl?: string;
   jellyfinApiKey?: string;
+  isDownloading?: boolean;
+  downloadProgress?: number;
+  torrentHash?: string;
 }
 
 export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
@@ -37,6 +41,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   onNextEpisode,
   jellyfinServerUrl,
   jellyfinApiKey,
+  isDownloading,
+  downloadProgress,
+  torrentHash,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,11 +60,59 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [buffered, setBuffered] = useState(0);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPos, setHoverPos] = useState<number | null>(null);
   const [streamError, setStreamError] = useState(false);
+  const [isMidStreamBuffering, setIsMidStreamBuffering] = useState(false);
   const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
   const [streamUrl, setStreamUrl] = useState<string>('');
   const [isTranscoding, setIsTranscoding] = useState(false);
   const [isLoadingStream, setIsLoadingStream] = useState(true);
+
+  const isItemDownloading = Boolean(
+    isDownloading ||
+    item.isDownloading ||
+    item.downloadStreamUrl?.includes('/api/stream/download') ||
+    item.videoStreamUrl?.includes('/api/stream/download')
+  );
+
+  const [activeDownloadProgress, setActiveDownloadProgress] = useState<number>(
+    downloadProgress ?? item.downloadProgress ?? 0
+  );
+  const [activeDownloadSpeed, setActiveDownloadSpeed] = useState<number>(
+    item.downloadSpeed ?? 0
+  );
+
+  useEffect(() => {
+    if (!isItemDownloading) return;
+
+    const hash =
+      torrentHash ||
+      item.torrentHash ||
+      (item.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]) ||
+      (item.videoStreamUrl?.match(/hash=([^&]+)/)?.[1]);
+
+    if (!hash) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/downloads');
+        if (!res.ok) return;
+        const data = await res.json();
+        const found = data.items?.find(
+          (t: any) => t.hash.toLowerCase() === hash.toLowerCase()
+        );
+        if (found) {
+          setActiveDownloadProgress(found.progressPercent);
+          setActiveDownloadSpeed(found.downloadSpeed);
+        }
+      } catch {
+        // Ignore background polling errors
+      }
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [isItemDownloading, torrentHash, item.torrentHash, item.downloadStreamUrl, item.videoStreamUrl]);
   const [hasTriedFallbackTranscode, setHasTriedFallbackTranscode] = useState(false);
   const [playbackDuration, setPlaybackDuration] = useState<number>(0);
 
@@ -586,12 +641,18 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   // Negotiate dynamic playback stream (DirectPlay / Transcoding)
   useEffect(() => {
+    if (item.downloadStreamUrl || (item.isDownloading && (item.videoStreamUrl || item.downloadStreamUrl))) {
+      setStreamUrl(item.downloadStreamUrl || item.videoStreamUrl || '');
+      setIsLoadingStream(false);
+      return;
+    }
+
     if (!activePlayableId && item.type === 'Series') {
       return;
     }
 
     if (!isJellyfinItem) {
-      setStreamUrl(activeEpisode?.videoStreamUrl || item.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+      setStreamUrl(activeEpisode?.videoStreamUrl || item.downloadStreamUrl || item.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
       setIsLoadingStream(false);
       return;
     }
@@ -831,6 +892,26 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   }, [streamUrl]);
 
   // Video event handlers
+  const updateBufferState = () => {
+    if (!videoRef.current) return;
+    const cur = videoRef.current.currentTime;
+    const effectiveDuration = duration > 0 ? duration : (knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0));
+    if (effectiveDuration > 0 && videoRef.current.buffered.length > 0) {
+      const b = videoRef.current.buffered;
+      let buffEnd = 0;
+      for (let i = 0; i < b.length; i++) {
+        if (b.start(i) <= cur + 2 && cur <= b.end(i)) {
+          buffEnd = b.end(i);
+          break;
+        }
+      }
+      if (buffEnd === 0 && b.length > 0) {
+        buffEnd = b.end(b.length - 1);
+      }
+      setBuffered(Math.min(100, Math.max(0, (buffEnd / effectiveDuration) * 100)));
+    }
+  };
+
   const handleTimeUpdate = () => {
     if (videoRef.current && !isScrubbing) {
       const cur = videoRef.current.currentTime;
@@ -846,12 +927,21 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         return candidate;
       });
 
-      const effectiveDuration = duration > 0 ? duration : (knownDurationSeconds > 0 ? knownDurationSeconds : (videoRef.current.duration || 0));
-      if (videoRef.current.buffered.length > 0 && effectiveDuration > 0) {
-        const buffEnd = videoRef.current.buffered.end(videoRef.current.buffered.length - 1);
-        setBuffered(Math.min(100, (buffEnd / effectiveDuration) * 100));
-      }
+      updateBufferState();
     }
+  };
+
+  const handleProgress = () => {
+    updateBufferState();
+  };
+
+  const handleScrubberMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetDur = displayDuration || 100;
+    setHoverTime(pos * targetDur);
+    setHoverPos(pos * 100);
   };
 
   const handleLoadedMetadata = () => {
@@ -875,6 +965,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     : knownDurationSeconds > 0 && knownDurationSeconds >= currentTime
       ? knownDurationSeconds
       : currentTime > 0 ? currentTime : (knownDurationSeconds || 0);
+
+  const playPercent = displayDuration > 0
+    ? Math.min(100, Math.max(0, (currentTime / displayDuration) * 100))
+    : 0;
 
   const togglePlay = () => {
     if (isCasting && typeof window !== 'undefined' && (window as any).cast?.framework) {
@@ -1178,7 +1272,15 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         <video
           ref={videoRef}
           crossOrigin="anonymous"
-          onTimeUpdate={handleTimeUpdate}
+          onTimeUpdate={() => {
+            if (isMidStreamBuffering) setIsMidStreamBuffering(false);
+            handleTimeUpdate();
+          }}
+          onProgress={handleProgress}
+          onWaiting={() => setIsMidStreamBuffering(true)}
+          onStalled={() => setIsMidStreamBuffering(true)}
+          onPlaying={() => setIsMidStreamBuffering(false)}
+          onCanPlay={() => setIsMidStreamBuffering(false)}
           onLoadedMetadata={handleLoadedMetadata}
           onError={handlePlaybackError}
           className={isCasting ? 'hidden' : 'w-full h-full object-contain cursor-pointer'}
@@ -1196,6 +1298,27 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             />
           ))}
         </video>
+
+        {/* Mid-Stream Buffering Overlay when waiting for data */}
+        {isMidStreamBuffering && !isLoadingEpisode && !isLoadingStream && !isCasting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-30">
+            <div className="px-6 py-4 rounded-2xl bg-black/80 backdrop-blur-md border border-white/10 flex flex-col items-center space-y-2.5 shadow-2xl animate-in fade-in duration-200">
+              <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+              <div className="text-center">
+                <p className="text-xs sm:text-sm font-semibold text-white/95">
+                  {isItemDownloading
+                    ? `Buffering stream (${activeDownloadProgress}% downloaded)...`
+                    : 'Buffering stream...'}
+                </p>
+                {isItemDownloading && activeDownloadSpeed > 0 && (
+                  <p className="text-[11px] text-blue-400 font-mono mt-0.5">
+                    {(activeDownloadSpeed / 1024 / 1024).toFixed(1)} MB/s
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Static Backdrop Preview when Casting on PC */}
         {isCasting && (
@@ -1287,20 +1410,47 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           {/* Bottom: Timeline Scrubber + Controls + Settings */}
           <div className="space-y-4">
             {/* Timeline Scrubber */}
-            <div className="space-y-1">
-              <input
-                type="range"
-                min={0}
-                max={displayDuration || 100}
-                step={0.5}
-                value={currentTime}
-                onChange={handleScrubChange}
-                onMouseUp={handleScrubEnd}
-                onTouchEnd={handleScrubEnd}
-                className="w-full h-1.5 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-red-600"
-              />
+            <div className="space-y-1.5">
+              <div className="relative w-full flex items-center py-1">
+                {/* Track background */}
+                <div className="relative w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                  {/* Download progress on disk */}
+                  {isItemDownloading && activeDownloadProgress > 0 && (
+                    <div
+                      className="absolute left-0 top-0 bottom-0 bg-blue-500/35 transition-all duration-300"
+                      style={{ width: `${Math.min(100, activeDownloadProgress)}%` }}
+                    />
+                  )}
+                  {/* Browser buffer in RAM */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 bg-white/40 transition-all duration-150"
+                    style={{ width: `${buffered}%` }}
+                  />
+                  {/* Playback progress */}
+                  <div
+                    className="absolute left-0 top-0 bottom-0 bg-red-600 transition-none"
+                    style={{ width: `${playPercent}%` }}
+                  />
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={displayDuration || 100}
+                  step={0.5}
+                  value={currentTime}
+                  onChange={handleScrubChange}
+                  onMouseUp={handleScrubEnd}
+                  onTouchEnd={handleScrubEnd}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                />
+              </div>
               <div className="flex justify-between text-xs font-mono text-neutral-400">
                 <span>{formatTime(currentTime)}</span>
+                {isItemDownloading && (
+                  <span className="text-[10px] text-blue-400 font-sans">
+                    Downloaded: {activeDownloadProgress}%
+                  </span>
+                )}
                 <span>{formatTime(displayDuration)}</span>
               </div>
             </div>
@@ -1392,7 +1542,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       >
         {/* Top Header Bar */}
         <div className="p-3 sm:p-6 md:p-8 bg-gradient-to-b from-black/90 via-black/50 to-transparent flex items-center justify-between pointer-events-auto">
-          {/* Back button + Media Title */}
+          {/* Back button + Media Title + In-Progress Badge */}
           <div className="flex items-center space-x-2.5 sm:space-x-4 min-w-0 flex-1 mr-4">
             <button
               onClick={handleClose}
@@ -1402,9 +1552,20 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               <ArrowLeft className="w-6 h-6 sm:w-7 sm:h-7" />
             </button>
             <div className="space-y-0.5 min-w-0 flex-1">
-              <h2 className="text-white font-bold text-base sm:text-lg md:text-xl drop-shadow truncate">
-                {item.title}
-              </h2>
+              <div className="flex items-center space-x-3">
+                <h2 className="text-white font-bold text-base sm:text-lg md:text-xl drop-shadow truncate">
+                  {item.title}
+                </h2>
+                {isItemDownloading && (
+                  <div className="flex items-center space-x-1.5 px-2.5 py-0.5 bg-blue-600/30 border border-blue-500/40 rounded-full text-blue-300 text-xs backdrop-blur-md shrink-0 shadow">
+                    <Download className="w-3 h-3 animate-pulse" />
+                    <span>
+                      In-Progress ({activeDownloadProgress}%
+                      {activeDownloadSpeed > 0 ? ` • ${(activeDownloadSpeed / 1024 / 1024).toFixed(1)} MB/s` : ''})
+                    </span>
+                  </div>
+                )}
+              </div>
               {activeEpisode && (
                 <p className="text-neutral-400 text-xs sm:text-sm font-medium truncate">
                   Season {activeEpisode.seasonNumber}, Episode {activeEpisode.episodeNumber}: {activeEpisode.name}
@@ -1436,15 +1597,60 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           className="p-3 sm:p-6 md:p-8 pb-4 sm:pb-6 bg-gradient-to-t from-black/95 via-black/60 to-transparent pointer-events-auto space-y-2 sm:space-y-3"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Timeline Scrubber */}
-          <div className="relative group/scrubber cursor-pointer w-full flex items-center py-1.5 sm:py-2">
-            {/* Buffer Bar */}
+          {/* Timeline Scrubber Container */}
+          <div
+            className="relative group/scrubber cursor-pointer w-full flex items-center py-2 select-none"
+            onMouseMove={handleScrubberMouseMove}
+            onMouseLeave={() => {
+              setHoverTime(null);
+              setHoverPos(null);
+            }}
+          >
+            {/* Scrubber Track Bar */}
+            <div className="relative w-full h-1 group-hover/scrubber:h-2 bg-neutral-800 rounded-full overflow-hidden transition-all duration-150">
+              {/* Torrent Downloaded Bar (on disk) */}
+              {isItemDownloading && activeDownloadProgress > 0 && (
+                <div
+                  className="absolute left-0 top-0 bottom-0 bg-blue-500/35 transition-all duration-300"
+                  style={{ width: `${Math.min(100, activeDownloadProgress)}%` }}
+                />
+              )}
+
+              {/* Browser Buffered Bar (in memory) */}
+              <div
+                className="absolute left-0 top-0 bottom-0 bg-white/40 transition-all duration-150"
+                style={{ width: `${buffered}%` }}
+              />
+
+              {/* Playback Progress Bar */}
+              <div
+                className="absolute left-0 top-0 bottom-0 bg-red-600 transition-none"
+                style={{ width: `${playPercent}%` }}
+              />
+            </div>
+
+            {/* Scrubber Thumb Handle */}
             <div
-              className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-neutral-700 rounded-full pointer-events-none"
-              style={{ width: `${buffered}%` }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 bg-red-600 rounded-full shadow-lg scale-0 group-hover/scrubber:scale-100 transition-transform pointer-events-none z-10"
+              style={{ left: `${playPercent}%` }}
             />
 
-            {/* Progress Slider */}
+            {/* Hover Timestamp & Buffer Preview Tooltip */}
+            {hoverTime !== null && hoverPos !== null && (
+              <div
+                className="absolute -top-9 -translate-x-1/2 px-2.5 py-1 bg-black/90 backdrop-blur-md border border-neutral-700 rounded text-[11px] font-mono text-white shadow-xl pointer-events-none whitespace-nowrap z-30"
+                style={{ left: `${hoverPos}%` }}
+              >
+                <span>{formatTime(hoverTime)}</span>
+                {isItemDownloading && (
+                  <span className="ml-1.5 text-blue-400 text-[10px]">
+                    ({activeDownloadProgress}% dl)
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Transparent native range input over top for frictionless scrub & drag */}
             <input
               type="range"
               min={0}
@@ -1454,7 +1660,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               onChange={handleScrubChange}
               onMouseUp={handleScrubEnd}
               onTouchEnd={handleScrubEnd}
-              className="w-full h-1 bg-neutral-600 rounded-lg appearance-none cursor-pointer accent-red-600 group-hover/scrubber:h-2 transition-all"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+              aria-label="Seek time"
             />
           </div>
 

@@ -48,6 +48,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
   const [seerrApiKey, setSeerrApiKey] = useState('');
   const [showSeerrKey, setShowSeerrKey] = useState(false);
 
+  // qBittorrent form state
+  const [qbittorrentUrl, setQbittorrentUrl] = useState('');
+  const [qbittorrentUsername, setQbittorrentUsername] = useState('admin');
+  const [qbittorrentPassword, setQbittorrentPassword] = useState('');
+  const [showQbittorrentPassword, setShowQbittorrentPassword] = useState(false);
+  const [downloadsPath, setDownloadsPath] = useState('/downloads');
+
   // Test status states
   const [isTestingJellyfin, setIsTestingJellyfin] = useState(false);
   const [jellyfinTestStatus, setJellyfinTestStatus] = useState<{
@@ -59,6 +66,13 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
 
   const [isTestingSeerr, setIsTestingSeerr] = useState(false);
   const [seerrTestStatus, setSeerrTestStatus] = useState<{
+    success?: boolean;
+    version?: string;
+    error?: string;
+  } | null>(null);
+
+  const [isTestingQbittorrent, setIsTestingQbittorrent] = useState(false);
+  const [qbittorrentTestStatus, setQbittorrentTestStatus] = useState<{
     success?: boolean;
     version?: string;
     error?: string;
@@ -82,11 +96,17 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
         .then((cfg) => {
           if (cfg.jellyfinUrl) setJellyfinUrl(cfg.jellyfinUrl);
           if (cfg.seerrUrl) setSeerrUrl(cfg.seerrUrl);
+          if (cfg.qbittorrentUrl) setQbittorrentUrl(cfg.qbittorrentUrl);
+          if (cfg.qbittorrentUsername) setQbittorrentUsername(cfg.qbittorrentUsername);
+          if (cfg.downloadsPath) setDownloadsPath(cfg.downloadsPath);
           if (cfg.hasJellyfinKey) {
             setJellyfinTestStatus({ success: true, serverName: 'Configured' });
           }
           if (cfg.hasSeerrKey) {
             setSeerrTestStatus({ success: true });
+          }
+          if (cfg.isQbittorrentConfigured) {
+            setQbittorrentTestStatus({ success: true });
           }
 
           // If Jellyfin is already configured and setup is needed for profiles, jump to step 2
@@ -159,6 +179,30 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
     }
   };
 
+  // Test qBittorrent connection
+  const handleTestQbittorrent = async () => {
+    if (!qbittorrentUrl.trim()) return;
+    setIsTestingQbittorrent(true);
+    setQbittorrentTestStatus(null);
+    try {
+      const res = await fetch('/api/config?action=test-qbittorrent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: qbittorrentUrl.trim(),
+          username: qbittorrentUsername.trim(),
+          password: qbittorrentPassword.trim(),
+        }),
+      });
+      const data = await res.json();
+      setQbittorrentTestStatus(data);
+    } catch {
+      setQbittorrentTestStatus({ success: false, error: 'Connection failed' });
+    } finally {
+      setIsTestingQbittorrent(false);
+    }
+  };
+
   // Save server configuration and move to Step 2 (Profiles)
   const handleSaveServers = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,6 +223,10 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
           jellyfinApiKey: jellyfinApiKey.trim(),
           seerrUrl: seerrUrl.trim(),
           seerrApiKey: seerrApiKey.trim(),
+          qbittorrentUrl: qbittorrentUrl.trim(),
+          qbittorrentUsername: qbittorrentUsername.trim(),
+          qbittorrentPassword: qbittorrentPassword.trim(),
+          downloadsPath: downloadsPath.trim(),
         }),
       });
 
@@ -476,6 +524,134 @@ export const InitialSetupModal: React.FC<InitialSetupModalProps> = ({
                       </>
                     ) : (
                       <span>Test Seerr Connection</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* qBittorrent Configuration Card (Optional - Live Torrent Streaming) */}
+            <div className="bg-neutral-950/70 border border-neutral-800/90 rounded-xl p-4 sm:p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold">
+                    <Download size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white">
+                      qBittorrent Downloader <span className="text-neutral-500 text-xs font-normal">(Optional)</span>
+                    </h3>
+                    <p className="text-[11px] text-neutral-400">
+                      Enables streaming actively downloading movies and episodes in real time.
+                    </p>
+                  </div>
+                </div>
+
+                {qbittorrentTestStatus && (
+                  <div
+                    className={`flex items-center space-x-1 text-xs px-2.5 py-1 rounded-full border ${
+                      qbittorrentTestStatus.success
+                        ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300'
+                        : 'bg-red-950/60 border-red-800/80 text-red-300'
+                    }`}
+                  >
+                    {qbittorrentTestStatus.success ? (
+                      <>
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                        <span>Connected {qbittorrentTestStatus.version ? `(v${qbittorrentTestStatus.version})` : ''}</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={13} className="text-red-400" />
+                        <span>Failed</span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
+                    qBittorrent WebUI URL
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="http://192.168.1.50:8080 or http://qbittorrent:8080"
+                    value={qbittorrentUrl}
+                    onChange={(e) => setQbittorrentUrl(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg bg-neutral-900 border border-neutral-700/80 text-white text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder-neutral-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="admin"
+                      value={qbittorrentUsername}
+                      onChange={(e) => setQbittorrentUsername(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-lg bg-neutral-900 border border-neutral-700/80 text-white text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder-neutral-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showQbittorrentPassword ? 'text' : 'password'}
+                        placeholder="WebUI Password"
+                        value={qbittorrentPassword}
+                        onChange={(e) => setQbittorrentPassword(e.target.value)}
+                        className="w-full pl-3.5 pr-10 py-2.5 rounded-lg bg-neutral-900 border border-neutral-700/80 text-white text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder-neutral-500 font-mono text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowQbittorrentPassword(!showQbittorrentPassword)}
+                        className="absolute right-3 top-3 text-neutral-400 hover:text-white"
+                        tabIndex={-1}
+                      >
+                        {showQbittorrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1">
+                    Downloads Directory Mount
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="/downloads or /mnt/downloads"
+                    value={downloadsPath}
+                    onChange={(e) => setDownloadsPath(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-lg bg-neutral-900 border border-neutral-700/80 text-white text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder-neutral-500 font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-neutral-500 mt-1">
+                    The path where completed &amp; in-progress torrents are mounted in the container.
+                  </p>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestQbittorrent}
+                    disabled={isTestingQbittorrent || !qbittorrentUrl.trim()}
+                    className="px-3.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold transition flex items-center space-x-1.5 disabled:opacity-50"
+                  >
+                    {isTestingQbittorrent ? (
+                      <>
+                        <Loader2 size={13} className="animate-spin" />
+                        <span>Testing...</span>
+                      </>
+                    ) : (
+                      <span>Test qBittorrent Connection</span>
                     )}
                   </button>
                 </div>

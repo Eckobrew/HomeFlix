@@ -66,6 +66,27 @@ function update_script() {
 
 start
 build_container
+
+# Auto-detect and configure GPU hardware acceleration if available on host
+if [ -e "/dev/dri/renderD128" ]; then
+  msg_info "Configuring Hardware Acceleration (VA-API /dev/dri)"
+  pct set "$CTID" -dev0 /dev/dri/renderD128,mode=0666
+  if [ -e "/dev/dri/card0" ]; then
+    pct set "$CTID" -dev1 /dev/dri/card0,mode=0666
+  elif [ -e "/dev/dri/card1" ]; then
+    pct set "$CTID" -dev1 /dev/dri/card1,mode=0666
+  fi
+  msg_ok "Configured Hardware Acceleration"
+fi
+
+if [ -e "/dev/nvidiactl" ]; then
+  msg_info "Configuring Hardware Acceleration (NVIDIA GPU)"
+  pct set "$CTID" -dev2 /dev/nvidia0,mode=0666 2>/dev/null || true
+  pct set "$CTID" -dev3 /dev/nvidiactl,mode=0666 2>/dev/null || true
+  pct set "$CTID" -dev4 /dev/nvidia-uvm,mode=0666 2>/dev/null || true
+  msg_ok "Configured NVIDIA GPU Passthrough"
+fi
+
 description
 
 msg_ok "Completed successfully!\n"

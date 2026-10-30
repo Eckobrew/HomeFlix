@@ -63,6 +63,24 @@ export const getServerConfig = (): ServerConfig => {
     process.env.SEERR_API_KEY ||
     '';
 
+  const qbittorrentUrl =
+    fileConfig.qbittorrentUrl ||
+    process.env.QBITTORRENT_URL ||
+    process.env.NEXT_PUBLIC_QBITTORRENT_URL ||
+    '';
+  const qbittorrentUsername =
+    fileConfig.qbittorrentUsername ||
+    process.env.QBITTORRENT_USERNAME ||
+    '';
+  const qbittorrentPassword =
+    fileConfig.qbittorrentPassword ||
+    process.env.QBITTORRENT_PASSWORD ||
+    '';
+  const downloadsPath =
+    fileConfig.downloadsPath ||
+    process.env.DOWNLOADS_PATH ||
+    '/downloads';
+
   const appName =
     fileConfig.appName ||
     process.env.APP_NAME ||
@@ -80,6 +98,10 @@ export const getServerConfig = (): ServerConfig => {
     jellyfinUserId,
     seerrUrl: sanitizeUrl(seerrUrl),
     seerrApiKey,
+    qbittorrentUrl: sanitizeUrl(qbittorrentUrl),
+    qbittorrentUsername,
+    qbittorrentPassword,
+    downloadsPath,
     isConfigured,
   };
 };
@@ -95,6 +117,10 @@ export const saveServerConfig = (newConfig: Partial<ServerConfig>): ServerConfig
     jellyfinApiKey: newConfig.jellyfinApiKey !== undefined ? newConfig.jellyfinApiKey : current.jellyfinApiKey,
     seerrApiKey: newConfig.seerrApiKey !== undefined ? newConfig.seerrApiKey : current.seerrApiKey,
     jellyfinUserId: newConfig.jellyfinUserId !== undefined ? newConfig.jellyfinUserId : current.jellyfinUserId,
+    qbittorrentUrl: sanitizeUrl(newConfig.qbittorrentUrl !== undefined ? newConfig.qbittorrentUrl : current.qbittorrentUrl || ''),
+    qbittorrentUsername: newConfig.qbittorrentUsername !== undefined ? newConfig.qbittorrentUsername : current.qbittorrentUsername,
+    qbittorrentPassword: newConfig.qbittorrentPassword !== undefined ? newConfig.qbittorrentPassword : current.qbittorrentPassword,
+    downloadsPath: newConfig.downloadsPath !== undefined ? newConfig.downloadsPath : current.downloadsPath,
     isConfigured: false,
   };
 

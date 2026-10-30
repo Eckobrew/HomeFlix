@@ -279,6 +279,19 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                     <span>Restart</span>
                   </button>
                 </>
+              ) : currentItem.isDownloading || currentItem.downloadStreamUrl ? (
+                <button
+                  onClick={() => {
+                    onPlay({
+                      ...currentItem,
+                      videoStreamUrl: currentItem.downloadStreamUrl || currentItem.videoStreamUrl,
+                    });
+                  }}
+                  className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white font-bold px-5 sm:px-6 py-2 rounded transition-transform active:scale-95 shadow"
+                >
+                  <Play size={18} className="fill-white" />
+                  <span>Watch In-Progress ({currentItem.downloadProgress || 0}%)</span>
+                </button>
               ) : (
                 <button
                   onClick={() => onRequest(currentItem)}
@@ -392,6 +405,13 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                     <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
                     <span className="text-emerald-400 font-medium">
                       Available on your Jellyfin server. Instant playback ready.
+                    </span>
+                  </>
+                ) : currentItem.isDownloading ? (
+                  <>
+                    <Download size={16} className="text-blue-400 shrink-0 animate-pulse" />
+                    <span className="text-blue-300 font-medium">
+                      Currently downloading ({currentItem.downloadProgress || 0}%). Stream in-progress is ready to watch!
                     </span>
                   </>
                 ) : isRequested ? (

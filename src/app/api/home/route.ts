@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
+import { QBittorrentClient } from '@/lib/qbittorrent';
 import { resolveJellyfinUserId } from '@/lib/profiles';
 import {
   MOCK_HERO_ITEM,
@@ -139,6 +140,42 @@ export async function GET(request: NextRequest) {
     const heroCandidate = featuredHeroItems[0] || resumeItems[0] || latestMovies[0] || MOCK_HERO_ITEM;
 
     const sections: MediaRowSection[] = [];
+
+    // Check actively downloading items from qBittorrent
+    const qb = new QBittorrentClient();
+    if (qb.isConfigured()) {
+      try {
+        const dlList = await qb.getStreamableDownloads();
+        if (dlList.length > 0) {
+          const downloadItems: MediaItem[] = dlList.map((d) => ({
+            id: `dl-${d.hash}`,
+            title: d.videoFile?.name ? d.videoFile.name.replace(/\.[^/.]+$/, '') : d.name,
+            overview: `Actively downloading via qBittorrent (${d.progressPercent}% complete, ${(d.downloadSpeed / 1024 / 1024).toFixed(1)} MB/s). Ready to stream live.`,
+            type: /s\d{1,2}e\d{1,2}|season|episode/i.test(d.name) ? 'Series' : 'Movie',
+            posterUrl: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60',
+            backdropUrl: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=1280&auto=format&fit=crop&q=80',
+            genres: ['Downloading', 'In-Progress'],
+            source: 'jellyfin',
+            status: 'processing',
+            isDownloading: true,
+            downloadProgress: d.progressPercent,
+            downloadSpeed: d.downloadSpeed,
+            downloadEta: d.eta,
+            torrentHash: d.hash,
+            videoStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
+            downloadStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
+          }));
+
+          sections.push({
+            id: 'currently-downloading',
+            title: '⬇ Actively Downloading (Stream In-Progress)',
+            items: downloadItems,
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load active downloads for home feed:', err);
+      }
+    }
 
     if (resumeItems.length > 0) {
       sections.push({

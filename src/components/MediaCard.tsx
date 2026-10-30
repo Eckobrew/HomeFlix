@@ -257,8 +257,15 @@ export const MediaCard: React.FC<MediaCardProps> = ({
             </div>
           )}
 
-          {/* Status badge in top right corner if from Seerr */}
-          {item.source === 'seerr' && (
+          {/* Status badge in top right corner if from Seerr or Actively Downloading */}
+          {item.isDownloading ? (
+            <div className="absolute top-2 right-2 z-10">
+              <span className="bg-blue-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow backdrop-blur-sm flex items-center space-x-1 border border-blue-400/40">
+                <Download size={10} className="animate-pulse" />
+                <span>DOWNLOADING {item.downloadProgress || 0}%</span>
+              </span>
+            </div>
+          ) : item.source === 'seerr' && (
             <div className="absolute top-2 right-2 z-10">
               {isAvailable ? (
                 <span className="bg-emerald-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow backdrop-blur-sm">
@@ -396,6 +403,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                     title="Play"
                   >
                     <Play size={16} className="fill-black ml-0.5" />
+                  </button>
+                ) : item.isDownloading || item.downloadStreamUrl ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPlay({
+                        ...item,
+                        videoStreamUrl: item.downloadStreamUrl || item.videoStreamUrl,
+                      });
+                    }}
+                    className="px-2.5 h-8 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center space-x-1.5 transition-transform hover:scale-105 shadow text-xs font-semibold"
+                    title={`Watch In-Progress (${item.downloadProgress || 0}% downloaded)`}
+                  >
+                    <Play size={13} className="fill-white" />
+                    <span>Watch ({item.downloadProgress || 0}%)</span>
                   </button>
                 ) : (
                   <button

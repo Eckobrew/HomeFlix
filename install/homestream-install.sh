@@ -19,7 +19,11 @@ $STD apt install -y \
   sudo \
   git \
   jq \
-  build-essential
+  build-essential \
+  ffmpeg \
+  vainfo \
+  va-driver-all \
+  mesa-va-drivers
 msg_ok "Installed Dependencies"
 
 NODE_VERSION="20" setup_nodejs

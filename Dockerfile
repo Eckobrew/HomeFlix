@@ -27,13 +27,20 @@ RUN npm_config_cache=/tmp/.npm-cache npm run build
 FROM base AS runner
 WORKDIR /app
 
+# Install runtime utilities for media inspection, live transcoding & hardware acceleration
+RUN apk add --no-cache \
+    ffmpeg \
+    libva-intel-driver \
+    intel-media-driver \
+    libva-utils
+
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
 

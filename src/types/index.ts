@@ -81,6 +81,12 @@ export interface MediaItem {
   videoQuality?: string; // e.g. "4K", "1080p", "720p", "SD"
   audioQuality?: string; // e.g. "Dolby Atmos", "5.1 Surround", "7.1 Surround", "Stereo", "Mono"
   hasHdr?: boolean;
+  isDownloading?: boolean;
+  downloadProgress?: number; // 0 - 100
+  downloadSpeed?: number;
+  downloadEta?: number;
+  torrentHash?: string;
+  downloadStreamUrl?: string;
 }
 
 export interface MediaRowSection {
@@ -97,7 +103,38 @@ export interface ServerConfig {
   jellyfinUserId: string;
   seerrUrl: string;
   seerrApiKey: string;
+  qbittorrentUrl?: string;
+  qbittorrentUsername?: string;
+  qbittorrentPassword?: string;
+  downloadsPath?: string;
   isConfigured: boolean;
+}
+
+export interface DownloadingTorrentFile {
+  index: number;
+  name: string;
+  size: number;
+  progress: number;
+  isMedia: boolean;
+}
+
+export interface DownloadingTorrentItem {
+  hash: string;
+  name: string;
+  progress: number; // 0 to 1
+  progressPercent: number; // 0 to 100
+  downloadSpeed: number; // bytes/sec
+  eta: number; // seconds
+  state: string;
+  size: number;
+  downloaded: number;
+  seqDl: boolean;
+  fLPiecePrio: boolean;
+  category?: string;
+  tags?: string;
+  streamable: boolean;
+  streamUrl?: string;
+  videoFile?: DownloadingTorrentFile;
 }
 
 export interface UserProfile {
