@@ -214,3 +214,17 @@ open http://localhost:3000
 
 ## 📄 License
 MIT License. Built for the self-hosting community.
+
+## Native Android and Android TV client API
+
+The native client is an independent Android project. This repository supplies
+the optional `/api/mobile/v1` API it consumes. Set `HOMESTREAM_MOBILE_TOKEN` to a
+random secret of at least 32 characters (`openssl rand -hex 32`), restart
+HomeStream, then pair the Android app with the server URL and that token.
+Docker Compose passes the token from `.env` into the container. The API remains
+disabled when the token is absent.
+
+See [the mobile API contract](docs/mobile-api.md) for endpoints, household access
+semantics, and Chromecast/Jellyfin network requirements. Run `npm run test:mobile`
+for isolated API integration checks. No Android source or Android build tools
+are required to run this server.
