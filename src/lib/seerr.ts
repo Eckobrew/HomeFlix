@@ -102,7 +102,7 @@ export class SeerrClient {
     const status = this.mapStatus(item.mediaInfo?.status);
 
     return {
-      id: `seerr-${item.id}`,
+      id: `seerr-${isTv ? 'tv' : 'movie'}-${item.id}`,
       title,
       overview: item.overview || 'No description available.',
       type: isTv ? 'Series' : 'Movie',

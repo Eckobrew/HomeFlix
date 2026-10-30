@@ -47,7 +47,8 @@ export const MediaModal: React.FC<MediaModalProps> = ({
     if (!item) return;
 
     // 1. Fetch full details & seasons
-    fetch(`/api/media/${item.id}`)
+    const type = item.type === 'Series' ? 'tv' : 'movie';
+    fetch(`/api/media/${item.id}?type=${type}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.item) {
@@ -60,8 +61,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
       .catch((err) => console.error('Failed to load item details:', err));
 
     // 2. Fetch trailer for movie or series
-    const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace('seerr-', '')) : undefined);
-    const type = item.type === 'Series' ? 'tv' : 'movie';
+    const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined);
     fetch(`/api/trailer?tmdbId=${tmdb || ''}&type=${type}&itemId=${item.id}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {

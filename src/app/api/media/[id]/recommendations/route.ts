@@ -14,7 +14,13 @@ export async function GET(
   const typeParam = searchParams.get('type') || 'movie';
   const tmdbIdParam = searchParams.get('tmdbId');
 
-  const mediaType: 'movie' | 'tv' = typeParam === 'tv' || typeParam === 'Series' ? 'tv' : 'movie';
+  let mediaType: 'movie' | 'tv' = typeParam === 'tv' || typeParam === 'Series' ? 'tv' : 'movie';
+  if (id.startsWith('seerr-tv-')) {
+    mediaType = 'tv';
+  } else if (id.startsWith('seerr-movie-')) {
+    mediaType = 'movie';
+  }
+
   const seerr = new SeerrClient();
   const jellyfin = new JellyfinClient();
 
@@ -24,7 +30,7 @@ export async function GET(
   // 1. If it's a Seerr item or numeric TMDB ID
   if (id.startsWith('seerr-') || /^\d+$/.test(id)) {
     if (!tmdbId) {
-      tmdbId = Number(id.replace('seerr-', '')) || 0;
+      tmdbId = Number(id.replace(/^seerr-(?:movie-|tv-)?/, '')) || 0;
     }
 
     if (tmdbId > 0 && seerr.isConfigured()) {

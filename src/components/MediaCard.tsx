@@ -110,7 +110,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         }, 400);
       } else {
         // Fetch trailer for requests / un-downloaded items
-        const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace('seerr-', '')) : undefined);
+        const tmdb = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined);
         const type = item.type === 'Series' ? 'tv' : 'movie';
         fetch(`/api/trailer?tmdbId=${tmdb || ''}&type=${type}&itemId=${item.id}`)
           .then((res) => (res.ok ? res.json() : null))

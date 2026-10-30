@@ -66,7 +66,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       }, 1800);
       return () => clearTimeout(timer);
     } else {
-      const tmdb = currentItem.tmdbId || (currentItem.id.startsWith('seerr-') ? Number(currentItem.id.replace('seerr-', '')) : undefined);
+      const tmdb = currentItem.tmdbId || (currentItem.id.startsWith('seerr-') ? Number(currentItem.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined);
       const type = currentItem.type === 'Series' ? 'tv' : 'movie';
       let active = true;
       fetch(`/api/trailer?tmdbId=${tmdb || ''}&type=${type}&itemId=${currentItem.id}`)

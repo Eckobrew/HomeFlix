@@ -39,34 +39,65 @@ export async function GET(
     }
   }
 
-  // 2. If it's a Seerr item or TMDB ID, fetch full TV details & episodes from Seerr
+  // 2. If it's a Seerr item or TMDB ID, fetch full Movie or TV details & episodes from Seerr
   if (seerr.isConfigured() && (id.startsWith('seerr-') || /^\d+$/.test(id))) {
-    const tmdbId = Number(id.replace('seerr-', ''));
+    let tmdbId = 0;
+    let explicitType: 'movie' | 'tv' | null = null;
+
+    if (id.startsWith('seerr-movie-')) {
+      explicitType = 'movie';
+      tmdbId = Number(id.replace('seerr-movie-', ''));
+    } else if (id.startsWith('seerr-tv-')) {
+      explicitType = 'tv';
+      tmdbId = Number(id.replace('seerr-tv-', ''));
+    } else if (id.startsWith('seerr-')) {
+      tmdbId = Number(id.replace('seerr-', ''));
+    } else {
+      tmdbId = Number(id);
+    }
+
+    const typeQuery = request.nextUrl.searchParams.get('type')?.toLowerCase();
+    if (typeQuery === 'movie') {
+      explicitType = 'movie';
+    } else if (typeQuery === 'tv' || typeQuery === 'series') {
+      explicitType = 'tv';
+    }
+
     if (tmdbId > 0) {
       try {
-        // Try TV show first (to load seasons & episodes)
-        const tvItem = await seerr.getTvDetails(tmdbId);
-        if (tvItem && tvItem.seasons && tvItem.seasons.length > 0) {
-          return NextResponse.json(
-            { item: tvItem },
-            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
-          );
-        }
-
-        // Try Movie
-        const movieItem = await seerr.getMovieDetails(tmdbId);
-        if (movieItem) {
-          return NextResponse.json(
-            { item: movieItem },
-            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
-          );
-        }
-
-        if (tvItem) {
-          return NextResponse.json(
-            { item: tvItem },
-            { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
-          );
+        if (explicitType === 'movie') {
+          const movieItem = await seerr.getMovieDetails(tmdbId);
+          if (movieItem) {
+            return NextResponse.json(
+              { item: movieItem },
+              { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+            );
+          }
+        } else if (explicitType === 'tv') {
+          const tvItem = await seerr.getTvDetails(tmdbId);
+          if (tvItem) {
+            return NextResponse.json(
+              { item: tvItem },
+              { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+            );
+          }
+        } else {
+          // If no type was specified (legacy ID e.g. seerr-27205 without type param),
+          // Check movie details first
+          const movieItem = await seerr.getMovieDetails(tmdbId);
+          if (movieItem) {
+            return NextResponse.json(
+              { item: movieItem },
+              { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+            );
+          }
+          const tvItem = await seerr.getTvDetails(tmdbId);
+          if (tvItem) {
+            return NextResponse.json(
+              { item: tvItem },
+              { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
+            );
+          }
         }
       } catch (e) {
         console.error(`Error querying Seerr for media ${id}:`, e);

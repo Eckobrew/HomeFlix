@@ -14,12 +14,18 @@ export async function GET(request: NextRequest) {
   const itemId = searchParams.get('itemId');
 
   let tmdbId = tmdbIdParam ? Number(tmdbIdParam) : 0;
-  const mediaType: 'movie' | 'tv' = typeParam === 'tv' || typeParam === 'Series' ? 'tv' : 'movie';
+  let mediaType: 'movie' | 'tv' = typeParam === 'tv' || typeParam === 'Series' ? 'tv' : 'movie';
 
   // If TMDB ID is not directly passed, try to extract from itemId
   if (!tmdbId && itemId) {
-    if (itemId.startsWith('seerr-')) {
-      tmdbId = Number(itemId.replace('seerr-', '')) || 0;
+    if (itemId.startsWith('seerr-tv-')) {
+      mediaType = 'tv';
+      tmdbId = Number(itemId.replace('seerr-tv-', '')) || 0;
+    } else if (itemId.startsWith('seerr-movie-')) {
+      mediaType = 'movie';
+      tmdbId = Number(itemId.replace('seerr-movie-', '')) || 0;
+    } else if (itemId.startsWith('seerr-')) {
+      tmdbId = Number(itemId.replace(/^seerr-(?:movie-|tv-)?/, '')) || 0;
     } else if (/^\d+$/.test(itemId)) {
       tmdbId = Number(itemId);
     } else {

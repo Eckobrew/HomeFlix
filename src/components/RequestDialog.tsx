@@ -65,7 +65,7 @@ export const RequestDialog: React.FC<RequestDialogProps> = ({
     setResultMessage(null);
 
     try {
-      const tmdbId = item.tmdbId || (item.seerrId ? Number(item.seerrId) : undefined);
+      const tmdbId = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined) || (item.seerrId ? Number(item.seerrId) : undefined);
       if (!tmdbId) {
         throw new Error('Missing TMDB ID for this media item.');
       }
