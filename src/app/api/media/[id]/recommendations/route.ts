@@ -11,10 +11,11 @@ export async function GET(
 ) {
   const { id } = params;
   const { searchParams } = new URL(request.url);
-  const typeParam = searchParams.get('type') || 'movie';
+  const typeParam = searchParams.get('type') || '';
   const tmdbIdParam = searchParams.get('tmdbId');
 
-  let mediaType: 'movie' | 'tv' = typeParam === 'tv' || typeParam === 'Series' ? 'tv' : 'movie';
+  let mediaType: 'movie' | 'tv' =
+    typeParam === 'tv' || typeParam === 'Series' || typeParam === 'Episode' ? 'tv' : 'movie';
   if (id.startsWith('seerr-tv-')) {
     mediaType = 'tv';
   } else if (id.startsWith('seerr-movie-')) {
@@ -44,30 +45,54 @@ export async function GET(
         jellyfin.getItemDetails(id),
       ]);
 
-      const resolvedTmdbId = tmdbId || itemDetails?.tmdbId;
+      if (itemDetails?.type === 'Series' || itemDetails?.type === 'Episode') {
+        mediaType = 'tv';
+      } else if (itemDetails?.type === 'Movie') {
+        mediaType = 'movie';
+      }
+
+      let resolvedTmdbId = tmdbId || itemDetails?.tmdbId;
+
+      // If tmdbId wasn't in ProviderIds, search Seerr by title to discover its TMDB ID
+      if (!resolvedTmdbId && itemDetails?.title && seerr.isConfigured()) {
+        try {
+          const searchRes = await seerr.search(itemDetails.title);
+          const expectedType = mediaType === 'tv' ? 'Series' : 'Movie';
+          const match = searchRes.find((r) => r.type === expectedType) || searchRes[0];
+          if (match?.tmdbId) {
+            resolvedTmdbId = match.tmdbId;
+          }
+        } catch (err) {
+          console.error(`Failed to resolve TMDB ID from Seerr for "${itemDetails.title}":`, err);
+        }
+      }
 
       let seerrRecs: MediaItem[] = [];
       if (resolvedTmdbId && seerr.isConfigured()) {
         seerrRecs = await seerr.getRecommendations(resolvedTmdbId, mediaType);
       }
 
-      // Merge: Jellyfin items (already available) first, then Seerr recommendations (for download)
+      // Merge: Combine both Seerr suggestions and Jellyfin suggestions evenly without prioritizing one over the other
       const seenTitles = new Set<string>();
       const combined: MediaItem[] = [];
 
-      for (const item of similarFromJellyfin) {
-        const normTitle = item.title.toLowerCase().trim();
-        if (!seenTitles.has(normTitle)) {
-          seenTitles.add(normTitle);
-          combined.push(item);
+      const maxLen = Math.max(similarFromJellyfin.length, seerrRecs.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (i < seerrRecs.length) {
+          const s = seerrRecs[i];
+          const normTitle = s.title.toLowerCase().trim();
+          if (!seenTitles.has(normTitle)) {
+            seenTitles.add(normTitle);
+            combined.push(s);
+          }
         }
-      }
-
-      for (const item of seerrRecs) {
-        const normTitle = item.title.toLowerCase().trim();
-        if (!seenTitles.has(normTitle)) {
-          seenTitles.add(normTitle);
-          combined.push(item);
+        if (i < similarFromJellyfin.length) {
+          const j = similarFromJellyfin[i];
+          const normTitle = j.title.toLowerCase().trim();
+          if (!seenTitles.has(normTitle)) {
+            seenTitles.add(normTitle);
+            combined.push(j);
+          }
         }
       }
 

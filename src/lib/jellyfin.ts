@@ -684,7 +684,9 @@ export class JellyfinClient {
       jellyfinId: item.Id,
       seriesId: item.SeriesId,
       seriesName: item.SeriesName,
-      tmdbId: item.ProviderIds?.Tmdb ? Number(item.ProviderIds.Tmdb) : undefined,
+      tmdbId: (item.ProviderIds?.Tmdb || item.ProviderIds?.tmdb || item.ProviderIds?.TheMovieDb)
+        ? Number(item.ProviderIds?.Tmdb || item.ProviderIds?.tmdb || item.ProviderIds?.TheMovieDb)
+        : undefined,
       status: 'available',
       played: Boolean(item.UserData?.Played),
       playbackPositionTicks: playbackTicks,
