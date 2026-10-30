@@ -84,6 +84,45 @@ export const MediaModal: React.FC<MediaModalProps> = ({
       .finally(() => setIsLoadingRecs(false));
   }, [item]);
 
+  // Keep live track of active qBittorrent downloads while modal is open
+  useEffect(() => {
+    if (!item) return;
+    let isMounted = true;
+    const pollDl = async () => {
+      try {
+        const res = await fetch('/api/downloads');
+        if (!res.ok) return;
+        const data = await res.json();
+        const dlList = data.items || [];
+        const cleanTitle = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matched = dlList.find((dl: any) => {
+          const cleanDl = (dl.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return cleanDl.includes(cleanTitle) || cleanTitle.includes(cleanDl);
+        });
+        if (matched && isMounted && item) {
+          setDetails((prev) => ({
+            ...(prev || item),
+            isDownloading: true,
+            status: 'processing',
+            downloadProgress: matched.progressPercent,
+            downloadSpeed: matched.downloadSpeed,
+            downloadEta: matched.eta,
+            torrentHash: matched.hash,
+            downloadStreamUrl: matched.streamUrl || `/api/stream/download?hash=${matched.hash}`,
+            videoStreamUrl: matched.streamUrl || `/api/stream/download?hash=${matched.hash}`,
+          }));
+        }
+      } catch {}
+    };
+
+    pollDl();
+    const interval = setInterval(pollDl, 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [item]);
+
   if (!item) return null;
 
   const currentItem = details || item;

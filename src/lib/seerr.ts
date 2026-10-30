@@ -100,6 +100,7 @@ export class SeerrClient {
       : posterUrl;
 
     const status = this.mapStatus(item.mediaInfo?.status);
+    const durationMinutes = (item as any).runtime || (item.mediaInfo as any)?.runtime || (item as any).durationMinutes;
 
     return {
       id: `seerr-${isTv ? 'tv' : 'movie'}-${item.id}`,
@@ -113,6 +114,7 @@ export class SeerrClient {
       rating: isTv ? 'TV-MA' : 'PG-13',
       matchPercentage: item.voteAverage ? Math.round(item.voteAverage * 10) : 90,
       communityRating: item.voteAverage,
+      durationMinutes,
       genres: [],
       source: 'seerr',
       tmdbId: item.id,

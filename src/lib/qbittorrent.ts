@@ -143,7 +143,7 @@ export class QBittorrentClient {
       this.sidCookie = null;
       const newSid = await this.getAuthCookie();
       if (newSid) {
-        headers['Cookie'] = `SID=${newSid}`;
+        headers['Cookie'] = newSid.includes('=') ? newSid : `SID=${newSid}`;
         const retryRes = await fetch(url, { ...options, headers });
         if (!retryRes.ok) return null;
         const text = await retryRes.text();
@@ -194,8 +194,21 @@ export class QBittorrentClient {
   }
 
   async getDownloadingTorrents(): Promise<QBittorrentRawTorrent[]> {
-    const list = await this.request<QBittorrentRawTorrent[]>('/api/v2/torrents/info?filter=downloading');
-    return Array.isArray(list) ? list : [];
+    const list = await this.request<QBittorrentRawTorrent[]>('/api/v2/torrents/info');
+    if (!Array.isArray(list)) return [];
+    return list.filter((t) => {
+      if (t.progress < 1.0) return true;
+      const state = (t.state || '').toLowerCase();
+      return (
+        state.includes('dl') ||
+        state === 'downloading' ||
+        state === 'stalleddl' ||
+        state === 'metadl' ||
+        state === 'allocating' ||
+        state === 'queueddl' ||
+        state === 'checkingdl'
+      );
+    });
   }
 
   async getAllActiveTorrents(): Promise<QBittorrentRawTorrent[]> {

@@ -46,6 +46,50 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     return () => clearTimeout(timer);
   }, [query]);
 
+  // Poll /api/downloads to keep torrent download progress & stream links live in search results
+  useEffect(() => {
+    let isMounted = true;
+    const pollDownloads = async () => {
+      try {
+        const res = await fetch('/api/downloads');
+        if (!res.ok) return;
+        const data = await res.json();
+        const dlList = data.items || [];
+        if (!isMounted || dlList.length === 0) return;
+
+        setResults((prev) =>
+          prev.map((item) => {
+            const cleanTitle = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const matched = dlList.find((dl: any) => {
+              const cleanDl = (dl.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return cleanDl.includes(cleanTitle) || cleanTitle.includes(cleanDl);
+            });
+            if (matched) {
+              return {
+                ...item,
+                isDownloading: true,
+                status: 'processing',
+                downloadProgress: matched.progressPercent,
+                downloadSpeed: matched.downloadSpeed,
+                downloadEta: matched.eta,
+                torrentHash: matched.hash,
+                downloadStreamUrl: matched.streamUrl || `/api/stream/download?hash=${matched.hash}`,
+                videoStreamUrl: matched.streamUrl || `/api/stream/download?hash=${matched.hash}`,
+              };
+            }
+            return item;
+          })
+        );
+      } catch {}
+    };
+
+    const interval = setInterval(pollDownloads, 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Apply filters
   const filteredResults = results.filter((item) => {
     if (activeFilter === 'available') return item.status === 'available' || item.source === 'jellyfin';
@@ -56,6 +100,20 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
   const handleDownloadAndStream = async (item: MediaItem) => {
     try {
+      // Immediately reflect downloading in search results
+      setResults((prev) =>
+        prev.map((r) =>
+          r.id === item.id
+            ? {
+                ...r,
+                isDownloading: true,
+                status: 'processing',
+                downloadProgress: r.downloadProgress || 0,
+              }
+            : r
+        )
+      );
+
       const tmdbId = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined) || (item.seerrId ? Number(item.seerrId) : undefined);
       if (tmdbId) {
         fetch('/api/request', {

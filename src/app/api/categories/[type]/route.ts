@@ -35,6 +35,24 @@ const TV_CATEGORIES: CategoryDef[] = [
   { id: 'cat-tv-animation', title: 'Anime & Animated Series', jfGenrePattern: /animation|anime/i, seerrGenreId: 16 },
 ];
 
+interface RequestCategoryDef {
+  id: string;
+  title: string;
+  seerrGenreId: number;
+  mediaType: 'movie' | 'tv';
+}
+
+const REQUEST_CATEGORIES: RequestCategoryDef[] = [
+  { id: 'cat-req-action', title: 'Action & Adventure', seerrGenreId: 28, mediaType: 'movie' },
+  { id: 'cat-req-comedy', title: 'Comedies', seerrGenreId: 35, mediaType: 'movie' },
+  { id: 'cat-req-scifi', title: 'Sci-Fi & Fantasy', seerrGenreId: 878, mediaType: 'movie' },
+  { id: 'cat-req-horror', title: 'Horror & Suspense', seerrGenreId: 27, mediaType: 'movie' },
+  { id: 'cat-req-tv-drama', title: 'TV Dramas & Series', seerrGenreId: 18, mediaType: 'tv' },
+  { id: 'cat-req-tv-crime', title: 'Crime & Mystery Series', seerrGenreId: 80, mediaType: 'tv' },
+  { id: 'cat-req-animation', title: 'Animation & Family', seerrGenreId: 16, mediaType: 'movie' },
+  { id: 'cat-req-documentary', title: 'Documentaries', seerrGenreId: 99, mediaType: 'movie' },
+];
+
 export async function GET(
   request: NextRequest,
   { params }: { params: { type: string } }
@@ -42,10 +60,11 @@ export async function GET(
   const typeParam = (params.type || '').toLowerCase();
   const isMovies = typeParam === 'movies' || typeParam === 'movie';
   const isTv = typeParam === 'tv' || typeParam === 'series' || typeParam === 'shows';
+  const isRequests = typeParam === 'requests' || typeParam === 'request';
 
-  if (!isMovies && !isTv) {
+  if (!isMovies && !isTv && !isRequests) {
     return NextResponse.json(
-      { error: 'Invalid type. Use "movies" or "series"' },
+      { error: 'Invalid type. Use "movies", "series", or "requests"' },
       { status: 400 }
     );
   }
@@ -56,6 +75,38 @@ export async function GET(
   const targetUserId = await resolveJellyfinUserId(profileId);
   const jellyfin = new JellyfinClient(undefined, undefined, targetUserId);
   const seerr = new SeerrClient();
+
+  if (isRequests) {
+    if (!seerr.isConfigured()) {
+      return NextResponse.json({ type: 'requests', sections: [] });
+    }
+
+    try {
+      const sections: MediaRowSection[] = await Promise.all(
+        REQUEST_CATEGORIES.map(async (cat) => {
+          try {
+            const items = await seerr.getDiscoverByGenre(cat.seerrGenreId, cat.mediaType);
+            return {
+              id: cat.id,
+              title: cat.title,
+              items: items.slice(0, 20),
+            };
+          } catch (e) {
+            console.warn(`Error fetching request category ${cat.title}:`, e);
+            return { id: cat.id, title: cat.title, items: [] };
+          }
+        })
+      );
+
+      return NextResponse.json({
+        type: 'requests',
+        sections: sections.filter((s) => s.items.length > 0),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+  }
 
   const categories = isMovies ? MOVIE_CATEGORIES : TV_CATEGORIES;
 

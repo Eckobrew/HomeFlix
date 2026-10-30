@@ -123,6 +123,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
             const nextStreamUrl = found.streamUrl || `/api/stream/download?hash=${found.hash}`;
             setStreamUrl(nextStreamUrl);
             setIsLoadingStream(false);
+            setStreamError(false);
           } else {
             setIsLoadingStream(true);
           }
@@ -182,6 +183,27 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [seriesEpisodes, setSeriesEpisodes] = useState<Episode[]>(
     item.seasons?.flatMap((s) => s.episodes || []) || []
   );
+
+  // Load full media details (especially durationMinutes / runtime) for accurate timeline display
+  useEffect(() => {
+    const hasDuration =
+      (item.durationMinutes && item.durationMinutes > 0) ||
+      (item.totalDurationTicks && item.totalDurationTicks > 0) ||
+      (activeEpisode?.durationMinutes && activeEpisode.durationMinutes > 0);
+
+    if (!hasDuration && item.id) {
+      fetch(`/api/media/${item.id}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.item?.durationMinutes) {
+            const durSec = data.item.durationMinutes * 60;
+            setPlaybackDuration(durSec);
+            setDuration(durSec);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [item.id, item.durationMinutes, item.totalDurationTicks, activeEpisode?.durationMinutes]);
 
   // If item is a series, ensure series seasons/episodes are loaded for navigation & next episode
   useEffect(() => {
@@ -667,9 +689,16 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   // Negotiate dynamic playback stream (DirectPlay / Transcoding)
   useEffect(() => {
-    if (item.downloadStreamUrl || (item.isDownloading && (item.videoStreamUrl || item.downloadStreamUrl))) {
-      setStreamUrl(item.downloadStreamUrl || item.videoStreamUrl || '');
-      setIsLoadingStream(false);
+    if (isItemDownloading) {
+      const minBuffer = 15 * 1024 * 1024;
+      const readyToPlay = downloadedBytes >= minBuffer || activeDownloadProgress >= 99;
+      if (readyToPlay && (item.downloadStreamUrl || item.videoStreamUrl)) {
+        setStreamUrl(item.downloadStreamUrl || item.videoStreamUrl || '');
+        setIsLoadingStream(false);
+      } else {
+        // Keep in loading/buffering state until poll() finds >= 15MB
+        setIsLoadingStream(true);
+      }
       return;
     }
 
@@ -678,7 +707,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
 
     if (!isJellyfinItem) {
-      setStreamUrl(activeEpisode?.videoStreamUrl || item.downloadStreamUrl || item.videoStreamUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
+      setStreamUrl(activeEpisode?.videoStreamUrl || item.downloadStreamUrl || item.videoStreamUrl || '');
       setIsLoadingStream(false);
       return;
     }
@@ -729,6 +758,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   }, [activePlayableId, item, isJellyfinItem, jellyfinServerUrl, jellyfinApiKey, activeEpisode]);
 
   const handlePlaybackError = useCallback(() => {
+    // If still downloading and below 15MB initial buffer, ignore playback error and continue buffering
+    if (isItemDownloading && downloadedBytes < 15 * 1024 * 1024) {
+      console.warn('Playback error ignored during initial torrent download buffer');
+      return;
+    }
+
     const targetId = activePlayableId || item.playableEpisodeId || (item.type !== 'Series' ? item.jellyfinId || item.id : undefined);
 
     if (isJellyfinItem && targetId && !hasTriedFallbackTranscode) {
@@ -943,14 +978,12 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       const cur = videoRef.current.currentTime;
       setCurrentTime(cur);
 
-      // Guard against chunk duration (e.g. 0:05) overriding true runtime
+      // Always anchor duration to true whole movie length (knownDurationSeconds)
       setDuration((prev) => {
-        const bestKnown = knownDurationSeconds > 0 ? knownDurationSeconds : 0;
-        const candidate = Math.max(prev, bestKnown, cur);
-        if (candidate <= 30 && bestKnown > 30) {
-          return bestKnown;
+        if (knownDurationSeconds > 0) {
+          return knownDurationSeconds;
         }
-        return candidate;
+        return Math.max(prev, cur);
       });
 
       updateBufferState();
@@ -973,24 +1006,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       const videoDur = videoRef.current.duration;
-      // If we have knownDurationSeconds from Jellyfin metadata, prefer it unless videoDur is finite, >= 60s, and close to known duration
+      // Prefer knownDurationSeconds so transcode chunk duration never shrinks or skews the whole movie length
       if (knownDurationSeconds > 0) {
-        if (Number.isFinite(videoDur) && videoDur >= knownDurationSeconds * 0.9) {
-          setDuration(videoDur);
-        } else {
-          setDuration(knownDurationSeconds);
-        }
+        setDuration(knownDurationSeconds);
       } else if (Number.isFinite(videoDur) && videoDur > 30) {
         setDuration(videoDur);
       }
     }
   };
 
-  const displayDuration = duration > 0 && duration >= currentTime
-    ? duration
-    : knownDurationSeconds > 0 && knownDurationSeconds >= currentTime
-      ? knownDurationSeconds
-      : currentTime > 0 ? currentTime : (knownDurationSeconds || 0);
+  const displayDuration = knownDurationSeconds > 0
+    ? knownDurationSeconds
+    : duration > 0 && duration >= currentTime
+      ? duration
+      : currentTime > 0
+        ? currentTime
+        : (knownDurationSeconds || 0);
 
   const playPercent = displayDuration > 0
     ? Math.min(100, Math.max(0, (currentTime / displayDuration) * 100))
@@ -1300,7 +1331,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       )}
 
       {/* Stream Error Dialog */}
-      {streamError && (
+      {streamError && (!isItemDownloading || downloadedBytes >= 15 * 1024 * 1024) && (
         <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center p-6 text-center z-40 space-y-4">
           <div className="w-16 h-16 rounded-full bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500">
             <AlertCircle size={32} />

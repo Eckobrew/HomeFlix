@@ -249,17 +249,6 @@ export async function GET(request: NextRequest) {
           } catch {}
         }
 
-        if (userRequests.length > 0) {
-          const reqSection: MediaRowSection = {
-            id: 'my-requests',
-            title: '⚡ Your Requested Media (Downloading & In-Progress)',
-            items: userRequests,
-          };
-          // Put at top of home feed (right after currently-downloading) and requests tab
-          sections.splice(sections.findIndex((s) => s.id === 'currently-downloading') + 1, 0, reqSection);
-          requestSections.unshift(reqSection);
-        }
-
         if (trending.length > 0) {
           sections.push({
             id: 'trending-seerr',
@@ -301,6 +290,15 @@ export async function GET(request: NextRequest) {
             id: 'requests-top-tv',
             title: 'Top TV Shows',
             items: popularTv,
+          });
+        }
+
+        // Bottom Row: Active user requests placed at the bottom of the Request media tab
+        if (userRequests.length > 0) {
+          requestSections.push({
+            id: 'my-requests',
+            title: '⚡ Your Requested Media (Downloading & In-Progress)',
+            items: userRequests,
           });
         }
       } catch (e) {

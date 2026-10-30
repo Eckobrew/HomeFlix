@@ -37,6 +37,7 @@ export default function Home() {
   // Netflix-style Category Rows for Movies and TV Shows Pages
   const [movieCategories, setMovieCategories] = useState<MediaRowSection[]>([]);
   const [tvCategories, setTvCategories] = useState<MediaRowSection[]>([]);
+  const [requestCategories, setRequestCategories] = useState<MediaRowSection[]>([]);
 
   // Modals & Overlays
   const [modalItem, setModalItem] = useState<MediaItem | null>(null);
@@ -96,15 +97,17 @@ export default function Home() {
     }
   };
 
-  const fetchCategories = useCallback(async (type: 'movies' | 'series') => {
+  const fetchCategories = useCallback(async (type: 'movies' | 'series' | 'requests') => {
     try {
       const res = await fetch(`/api/categories/${type}`);
       if (res.ok) {
         const data = await res.json();
         if (type === 'movies') {
           setMovieCategories(data.sections || []);
-        } else {
+        } else if (type === 'series') {
           setTvCategories(data.sections || []);
+        } else if (type === 'requests') {
+          setRequestCategories(data.sections || []);
         }
       }
     } catch (e) {
@@ -208,6 +211,7 @@ export default function Home() {
     // Background prefetch
     fetchCategories('movies');
     fetchCategories('series');
+    fetchCategories('requests');
 
     const handleKey = (e: KeyboardEvent) => {
       const activeTag = (e.target as HTMLElement)?.tagName;
@@ -227,6 +231,7 @@ export default function Home() {
     setActiveLibrary(null); // Exit A-Z sidebar view and return to standard tab streaming rows
     if (tab === 'movies') fetchCategories('movies');
     if (tab === 'series') fetchCategories('series');
+    if (tab === 'requests') fetchCategories('requests');
     if (typeof window !== 'undefined') {
       const url = tab === 'home' ? '/' : `/?tab=${tab}`;
       window.history.pushState(null, '', url);
@@ -276,21 +281,28 @@ export default function Home() {
       downloadProgress: requestedItem.downloadProgress || 0,
     };
 
-    // Update status in local rows immediately
-    setSections((prev) => {
+    // Update status in existing home sections (without adding my-requests to Home)
+    setSections((prev) =>
+      prev.map((sec) => ({
+        ...sec,
+        items: sec.items.map((i) => (i.id === updated.id ? updated : i)),
+      }))
+    );
+
+    // Update or append to "my-requests" at the bottom of requestSections
+    setRequestSections((prev) => {
       const next = prev.map((sec) => ({
         ...sec,
         items: sec.items.map((i) => (i.id === updated.id ? updated : i)),
       }));
 
-      // Ensure "my-requests" section exists and includes this newly requested item
       const myReqSec = next.find((s) => s.id === 'my-requests');
       if (myReqSec) {
         if (!myReqSec.items.some((i) => i.id === updated.id)) {
           myReqSec.items = [updated, ...myReqSec.items];
         }
       } else {
-        next.unshift({
+        next.push({
           id: 'my-requests',
           title: '⚡ Your Requested Media (Downloading & In-Progress)',
           items: [updated],
@@ -324,7 +336,7 @@ export default function Home() {
         res.push(...movieCategories);
       } else {
         const fallback = sections
-          .filter((s) => s.id !== 'continue-watching')
+          .filter((s) => s.id !== 'continue-watching' && s.id !== 'my-requests')
           .map((sec) => ({
             ...sec,
             title: sec.id === 'trending-seerr' ? 'Trending Movies' : sec.title,
@@ -354,7 +366,7 @@ export default function Home() {
         res.push(...tvCategories);
       } else {
         const fallback = sections
-          .filter((s) => s.id !== 'continue-watching')
+          .filter((s) => s.id !== 'continue-watching' && s.id !== 'my-requests')
           .map((sec) => ({
             ...sec,
             title: sec.id === 'trending-seerr' ? 'Trending TV Shows' : sec.title,
@@ -369,20 +381,6 @@ export default function Home() {
 
     if (activeTab === 'requests') {
       const res: MediaRowSection[] = [];
-
-      // 0. Active / in-progress user downloads and requests placed at the VERY TOP
-      const allRequested = [...sections, ...requestSections]
-        .flatMap((s) => s.items)
-        .filter((i) => i.status === 'requested' || i.status === 'processing' || i.isDownloading);
-      const uniqueRequested = Array.from(new Map(allRequested.map((i) => [i.id, i])).values());
-
-      if (uniqueRequested.length > 0) {
-        res.push({
-          id: 'my-requests',
-          title: '⚡ Your Requested Media (Downloading & In-Progress)',
-          items: uniqueRequested,
-        });
-      }
 
       // 1. Recommended for You (based on profile's watched content)
       const recommended = requestSections.find((s) => s.id === 'requests-recommended');
@@ -413,26 +411,36 @@ export default function Home() {
         res.push(topTv);
       }
 
+      // 5. Category rows for Request Media tab
+      if (requestCategories.length > 0) {
+        res.push(...requestCategories);
+      }
+
+      // 6. Active / in-progress user downloads and requests placed at the VERY BOTTOM of Request tab
+      const myReqSec = requestSections.find((s) => s.id === 'my-requests');
+      if (myReqSec && myReqSec.items.length > 0) {
+        res.push(myReqSec);
+      } else {
+        const allRequested = [...sections, ...requestSections]
+          .flatMap((s) => s.items)
+          .filter((i) => i.status === 'requested' || i.status === 'processing' || i.isDownloading);
+        const uniqueRequested = Array.from(new Map(allRequested.map((i) => [i.id, i])).values());
+
+        if (uniqueRequested.length > 0) {
+          res.push({
+            id: 'my-requests',
+            title: '⚡ Your Requested Media (Downloading & In-Progress)',
+            items: uniqueRequested,
+          });
+        }
+      }
+
       return res;
     }
 
-    // Default 'home' tab: all sections, ensuring my-requests is displayed near the top
-    const allRequestedHome = [...sections, ...requestSections]
-      .flatMap((s) => s.items)
-      .filter((i) => i.status === 'requested' || i.status === 'processing' || i.isDownloading);
-    const uniqueRequestedHome = Array.from(new Map(allRequestedHome.map((i) => [i.id, i])).values());
-
-    if (uniqueRequestedHome.length > 0 && !sections.some((s) => s.id === 'my-requests')) {
-      const myReqSec: MediaRowSection = {
-        id: 'my-requests',
-        title: '⚡ Your Requested Media (Downloading & In-Progress)',
-        items: uniqueRequestedHome,
-      };
-      return [myReqSec, ...sections];
-    }
-
-    return sections;
-  }, [sections, requestSections, activeTab, movieCategories, tvCategories]);
+    // Default 'home' tab: all sections, EXCLUDING my-requests (only on Requests tab at the bottom)
+    return sections.filter((s) => s.id !== 'my-requests');
+  }, [sections, requestSections, activeTab, movieCategories, tvCategories, requestCategories]);
 
   // Dynamic 5 rotating Hero Items for the active tab (random load + cycle)
   const displayedHeroItems = useMemo(() => {
