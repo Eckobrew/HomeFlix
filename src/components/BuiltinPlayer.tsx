@@ -205,6 +205,30 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     }
   }, [item.id, item.durationMinutes, item.totalDurationTicks, activeEpisode?.durationMinutes]);
 
+  // For active torrent streaming, probe the exact duration directly from ffprobe
+  useEffect(() => {
+    if (isItemDownloading) {
+      const hash =
+        resolvedTorrentHash ||
+        torrentHash ||
+        item.torrentHash ||
+        (item.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]) ||
+        (item.videoStreamUrl?.match(/hash=([^&]+)/)?.[1]);
+
+      if (hash) {
+        fetch(`/api/stream/download?hash=${hash}&probe=1`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.durationSeconds && data.durationSeconds > 0) {
+              setPlaybackDuration(data.durationSeconds);
+              setDuration(data.durationSeconds);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [isItemDownloading, resolvedTorrentHash, torrentHash, item.torrentHash, item.downloadStreamUrl, item.videoStreamUrl]);
+
   // If item is a series, ensure series seasons/episodes are loaded for navigation & next episode
   useEffect(() => {
     if (item.type === 'Series') {
@@ -1017,11 +1041,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   const displayDuration = knownDurationSeconds > 0
     ? knownDurationSeconds
-    : duration > 0 && duration >= currentTime
+    : duration > 0
       ? duration
-      : currentTime > 0
-        ? currentTime
-        : (knownDurationSeconds || 0);
+      : (item.durationMinutes ? item.durationMinutes * 60 : 0);
 
   const playPercent = displayDuration > 0
     ? Math.min(100, Math.max(0, (currentTime / displayDuration) * 100))

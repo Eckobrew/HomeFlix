@@ -143,28 +143,45 @@ export async function GET(request: NextRequest) {
 
     // Check actively downloading items from qBittorrent
     const qb = new QBittorrentClient();
+    let initialUserRequests: MediaItem[] = [];
+    if (seerr.isConfigured()) {
+      try {
+        initialUserRequests = await seerr.getUserRequests(30);
+      } catch {}
+    }
+
     if (qb.isConfigured()) {
       try {
         const dlList = await qb.getStreamableDownloads();
         if (dlList.length > 0) {
-          const downloadItems: MediaItem[] = dlList.map((d) => ({
-            id: `dl-${d.hash}`,
-            title: d.videoFile?.name ? d.videoFile.name.replace(/\.[^/.]+$/, '') : d.name,
-            overview: `Actively downloading via qBittorrent (${d.progressPercent}% complete, ${(d.downloadSpeed / 1024 / 1024).toFixed(1)} MB/s). Ready to stream live.`,
-            type: /s\d{1,2}e\d{1,2}|season|episode/i.test(d.name) ? 'Series' : 'Movie',
-            posterUrl: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60',
-            backdropUrl: 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=1280&auto=format&fit=crop&q=80',
-            genres: ['Downloading', 'In-Progress'],
-            source: 'jellyfin',
-            status: 'processing',
-            isDownloading: true,
-            downloadProgress: d.progressPercent,
-            downloadSpeed: d.downloadSpeed,
-            downloadEta: d.eta,
-            torrentHash: d.hash,
-            videoStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
-            downloadStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
-          }));
+          const downloadItems: MediaItem[] = dlList.map((d) => {
+            const cleanD = (d.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const matchedReq = initialUserRequests.find((r) => {
+              const cleanR = (r.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return cleanD.includes(cleanR) || cleanR.includes(cleanD);
+            });
+
+            return {
+              id: matchedReq ? matchedReq.id : `dl-${d.hash}`,
+              title: matchedReq ? matchedReq.title : (d.videoFile?.name ? d.videoFile.name.replace(/\.[^/.]+$/, '') : d.name),
+              overview: matchedReq ? matchedReq.overview : `Actively downloading via qBittorrent (${d.progressPercent}% complete, ${(d.downloadSpeed / 1024 / 1024).toFixed(1)} MB/s). Ready to stream live.`,
+              type: matchedReq ? matchedReq.type : (/s\d{1,2}e\d{1,2}|season|episode/i.test(d.name) ? 'Series' : 'Movie'),
+              posterUrl: matchedReq?.posterUrl || 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=500&auto=format&fit=crop&q=60',
+              backdropUrl: matchedReq?.backdropUrl || 'https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?w=1280&auto=format&fit=crop&q=80',
+              durationMinutes: matchedReq?.durationMinutes,
+              genres: matchedReq?.genres?.length ? matchedReq.genres : ['Downloading', 'In-Progress'],
+              source: matchedReq?.source || 'jellyfin',
+              tmdbId: matchedReq?.tmdbId,
+              status: 'processing',
+              isDownloading: true,
+              downloadProgress: d.progressPercent,
+              downloadSpeed: d.downloadSpeed,
+              downloadEta: d.eta,
+              torrentHash: d.hash,
+              videoStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
+              downloadStreamUrl: d.streamUrl || `/api/stream/download?hash=${d.hash}`,
+            };
+          });
 
           sections.push({
             id: 'currently-downloading',
@@ -218,7 +235,7 @@ export async function GET(request: NextRequest) {
         const topGenres = await jellyfin.getUserTopGenres(targetUserId);
 
         const [userRequests, recommended, trending, popularMovies, popularTv] = await Promise.all([
-          seerr.getUserRequests(),
+          initialUserRequests.length > 0 ? Promise.resolve(initialUserRequests) : seerr.getUserRequests(),
           seerr.getRecommendationsForGenres(topGenres),
           seerr.getTrending(),
           seerr.getPopularMovies(),

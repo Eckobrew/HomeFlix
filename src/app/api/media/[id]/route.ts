@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
+import { QBittorrentClient } from '@/lib/qbittorrent';
 import { resolveJellyfinUserId } from '@/lib/profiles';
 import {
   MOCK_HERO_ITEM,
@@ -27,6 +28,52 @@ export async function GET(
   const targetUserId = await resolveJellyfinUserId(profileId);
   const jellyfin = new JellyfinClient(undefined, undefined, targetUserId);
   const seerr = new SeerrClient();
+
+  // 0. If it's an actively downloading torrent item (dl-hash)
+  if (id.startsWith('dl-')) {
+    const hash = id.replace('dl-', '');
+    const qb = new QBittorrentClient();
+    if (qb.isConfigured()) {
+      try {
+        const torrents = await qb.getAllActiveTorrents();
+        const torrent = torrents.find((t) => t.hash.toLowerCase() === hash.toLowerCase());
+        if (torrent) {
+          const cleanTitle = torrent.name
+            .replace(/[._]/g, ' ')
+            .replace(/\b(19\d\d|20\d\d)\b.*$/i, '')
+            .replace(/\b(1080p|720p|2160p|4k|web-dl|bluray|x264|x265|hevc|ddp\d\.\d).*$/i, '')
+            .trim();
+
+          if (seerr.isConfigured() && cleanTitle) {
+            const searchResults = await seerr.search(cleanTitle);
+            const matched = searchResults.find(
+              (r) =>
+                r.title.toLowerCase().includes(cleanTitle.toLowerCase()) ||
+                cleanTitle.toLowerCase().includes(r.title.toLowerCase())
+            );
+            if (matched && matched.tmdbId) {
+              const fullDetails =
+                matched.type === 'Series'
+                  ? await seerr.getTvDetails(matched.tmdbId)
+                  : await seerr.getMovieDetails(matched.tmdbId);
+              if (fullDetails) {
+                fullDetails.id = id;
+                fullDetails.torrentHash = hash;
+                fullDetails.isDownloading = true;
+                fullDetails.downloadProgress = Math.round(torrent.progress * 100);
+                fullDetails.downloadSpeed = torrent.dlspeed;
+                fullDetails.videoStreamUrl = `/api/stream/download?hash=${hash}`;
+                fullDetails.downloadStreamUrl = `/api/stream/download?hash=${hash}`;
+                return NextResponse.json({ item: fullDetails });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed resolving dl- torrent details:', err);
+      }
+    }
+  }
 
   // 1. If it's a Jellyfin ID, fetch full details & episodes from Jellyfin
   if (jellyfin.isConfigured() && !id.startsWith('seerr-') && !id.startsWith('hero-') && !id.startsWith('cw-') && !id.startsWith('mov-') && !id.startsWith('ser-')) {

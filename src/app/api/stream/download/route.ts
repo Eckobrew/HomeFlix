@@ -203,6 +203,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Cannot access downloading file on disk' }, { status: 500 });
   }
 
+  // Quick probe support: return durationSeconds measured directly by ffprobe
+  if (searchParams.get('probe') === '1') {
+    try {
+      const probeProc = spawn('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        resolvedPath,
+      ]);
+      let out = '';
+      probeProc.stdout.on('data', (d) => { out += d.toString(); });
+      await new Promise((resolve) => probeProc.on('close', resolve));
+      const dur = parseFloat(out.trim());
+      if (dur > 0) {
+        return NextResponse.json({ durationSeconds: dur });
+      }
+    } catch {}
+    return NextResponse.json({ durationSeconds: 0 });
+  }
+
   // Check initial buffer: ensure at least 10MB exists so headers/keyframes are present
   const minBuffer = 10 * 1024 * 1024;
   if (stat.size < minBuffer && targetFileSize > minBuffer && targetFileProgress < 0.01) {
@@ -277,18 +297,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Transcoding / remuxing pipeline using FFmpeg
-  // When file is actively downloading, we feed pipe:0 continuously so FFmpeg does not exit on EOF!
+  // Read directly from file on disk so FFmpeg can parse container clusters & seek reliably without pipe EPIPE crashes
   const ffmpegArgs: string[] = ['-hide_banner', '-loglevel', 'error'];
 
-  if (startSec > 0 && !isActivelyDownloading) {
+  if (startSec > 0) {
     ffmpegArgs.push('-ss', startSec.toString());
   }
 
-  if (isActivelyDownloading) {
-    ffmpegArgs.push('-i', 'pipe:0');
-  } else {
-    ffmpegArgs.push('-i', resolvedPath);
-  }
+  ffmpegArgs.push('-i', resolvedPath);
 
   // Video strategy: copy video stream directly (fastest, lossless, zero CPU)
   ffmpegArgs.push('-c:v', 'copy');
@@ -306,86 +322,6 @@ export async function GET(request: NextRequest) {
   );
 
   const ffmpegProc = spawn('ffmpeg', ffmpegArgs);
-
-  let isStreamAborted = false;
-  let fileFd: number | null = null;
-
-  if (isActivelyDownloading) {
-    try {
-      fileFd = fs.openSync(resolvedPath, 'r');
-    } catch (err) {
-      console.error('[Stream] Failed to open downloading file for continuous tailing:', err);
-    }
-
-    if (fileFd !== null) {
-      const fd = fileFd;
-      (async () => {
-        let position = 0;
-        let lastStatusCheck = 0;
-        let cachedStillDownloading = true;
-        const CHUNK_SIZE = 64 * 1024;
-        const buf = Buffer.alloc(CHUNK_SIZE);
-
-        while (!isStreamAborted && !ffmpegProc.killed) {
-          try {
-            const bytesRead = fs.readSync(fd, buf, 0, CHUNK_SIZE, position);
-            if (bytesRead > 0) {
-              position += bytesRead;
-              const chunk = Buffer.from(buf.subarray(0, bytesRead));
-              const canWrite = ffmpegProc.stdin.write(chunk);
-              if (!canWrite) {
-                await new Promise((resolve) => ffmpegProc.stdin.once('drain', resolve));
-              }
-            } else {
-              // Reached current EOF on disk!
-              // For synthetic path testing:
-              if (rawPath) {
-                if (isActivelyDownloading && !isStreamAborted && !ffmpegProc.killed) {
-                  await new Promise((resolve) => setTimeout(resolve, 400));
-                  continue;
-                } else {
-                  break;
-                }
-              }
-
-              // Check if torrent has finished downloading (throttled to every 3s to support multi-streamer scale)
-              const now = Date.now();
-              if (now - lastStatusCheck > 3000) {
-                lastStatusCheck = now;
-                try {
-                  const checkClient = new QBittorrentClient();
-                  const active = await checkClient.getAllActiveTorrents();
-                  const currTorrent = active.find((t) => t.hash.toLowerCase() === hash?.toLowerCase());
-                  cachedStillDownloading = currTorrent ? currTorrent.progress < 1.0 : false;
-                } catch {
-                  cachedStillDownloading = true;
-                }
-              }
-
-              if (cachedStillDownloading && !isStreamAborted && !ffmpegProc.killed) {
-                // Wait 400ms for qBittorrent to download and flush more pieces to disk
-                await new Promise((resolve) => setTimeout(resolve, 400));
-              } else {
-                // Torrent download is complete and we reached true EOF!
-                break;
-              }
-            }
-          } catch {
-            break;
-          }
-        }
-
-        try {
-          fs.closeSync(fd);
-        } catch {}
-        try {
-          if (!ffmpegProc.killed) {
-            ffmpegProc.stdin.end();
-          }
-        } catch {}
-      })();
-    }
-  }
 
   const stream = new ReadableStream({
     start(controller) {
@@ -425,12 +361,6 @@ export async function GET(request: NextRequest) {
       }
     },
     cancel() {
-      isStreamAborted = true;
-      if (fileFd !== null) {
-        try {
-          fs.closeSync(fileFd);
-        } catch {}
-      }
       try {
         ffmpegProc.kill('SIGKILL');
       } catch {}
@@ -439,12 +369,6 @@ export async function GET(request: NextRequest) {
 
   // Handle client disconnect / aborted connection
   request.signal.addEventListener('abort', () => {
-    isStreamAborted = true;
-    if (fileFd !== null) {
-      try {
-        fs.closeSync(fileFd);
-      } catch {}
-    }
     try {
       ffmpegProc.kill('SIGKILL');
     } catch {}
