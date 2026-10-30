@@ -47,7 +47,9 @@ Jellyfin transcoding configuration before rollout.
 `npm run test:mobile` starts an isolated development server with temporary data
 and test credentials, verifies disabled/invalid auth, demo feed and details,
 profiles/libraries, playback/progress input validation and unavailable routes,
-and shuts the server down. No real Jellyfin or Seerr server is required.
+and shuts the server down. A fake Jellyfin upstream also verifies H.264/AAC
+negotiation and profile-linked progress/stop requests. No real Jellyfin or Seerr
+server is required.
 `npm run build` type-checks and builds the complete existing frontend.
 The repository's general `npm run lint` currently reports pre-existing errors
 outside this API; the new route is separately linted in the Mobile API workflow.

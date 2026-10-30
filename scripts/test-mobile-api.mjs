@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const token = 'integration-test-token-not-for-real-use-123456789';
@@ -12,6 +13,23 @@ const port = Number(process.env.MOBILE_TEST_PORT || 3197);
 const origin = `http://127.0.0.1:${port}`;
 let output = '';
 let server;
+const jellyfinCalls = [];
+const jellyfin = createServer(async (request, response) => {
+  let text = '';
+  for await (const chunk of request) text += chunk;
+  jellyfinCalls.push({ path: request.url, body: text ? JSON.parse(text) : null });
+  response.setHeader('Content-Type', 'application/json');
+  if (request.url.startsWith('/Items/episode/PlaybackInfo')) {
+    response.end(JSON.stringify({ PlaySessionId: 'session', MediaSources: [{
+      Id: 'source', RunTimeTicks: 36000000000,
+      TranscodingUrl: '/Videos/episode/master.m3u8?api_key=fake-stream-key',
+    }] }));
+  } else if (request.url.startsWith('/Sessions/Playing/')) {
+    response.end('{}');
+  } else {
+    response.statusCode = 404; response.end('{}');
+  }
+});
 async function start(secret) {
   server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'dev', '-p', String(port)], {
     env: { ...process.env, DATA_DIR: dir, HOMESTREAM_MOBILE_TOKEN: secret,
@@ -72,9 +90,30 @@ try {
   await api('progress', 400, { positionTicks: 0 });
   await api('not-found', 404);
   await api('config', 404);
-  console.log('Mobile API integration checks passed (auth, feed, profiles, details, libraries, validation, endpoint isolation).');
+  // A fake upstream verifies real Jellyfin negotiation and profile mapping without
+  // touching a household server or relying solely on demo responses.
+  jellyfin.listen(0, '127.0.0.1'); await once(jellyfin, 'listening');
+  const jellyfinUrl = `http://127.0.0.1:${jellyfin.address().port}`;
+  await writeFile(join(dir, 'config.json'), JSON.stringify({ jellyfinUrl, jellyfinApiKey: 'fake-server-key', jellyfinUserId: 'default-user' }));
+  await writeFile(join(dir, 'profiles.json'), JSON.stringify([{ id: 'household-profile', name: 'Test', jellyfinUserId: 'linked-jellyfin-user' }]));
+  const stream = await api('playback?itemId=episode&userId=household-profile&forceTranscode=true');
+  assert.equal(stream.isTranscoding, true);
+  assert.equal(stream.streamUrl, `${jellyfinUrl}/Videos/episode/master.m3u8?api_key=fake-stream-key`);
+  const negotiation = jellyfinCalls.find(call => call.path.startsWith('/Items/episode/PlaybackInfo'));
+  assert.ok(negotiation.path.includes('UserId=linked-jellyfin-user'));
+  assert.deepEqual(negotiation.body.DeviceProfile.DirectPlayProfiles, []);
+  assert.equal(negotiation.body.DeviceProfile.TranscodingProfiles[0].VideoCodec, 'h264');
+  await api('progress', 200, { itemId: 'episode', userId: 'household-profile', positionTicks: 1234560000, isPaused: true });
+  const progress = jellyfinCalls.find(call => call.path === '/Sessions/Playing/Progress');
+  assert.equal(progress.body.UserId, 'linked-jellyfin-user');
+  assert.equal(progress.body.PositionTicks, 1234560000);
+  await api('progress', 200, { itemId: 'episode', userId: 'household-profile', positionTicks: 1234560000, isStopped: true });
+  assert.ok(jellyfinCalls.some(call => call.path === '/Sessions/Playing/Stopped'));
+  console.log('Mobile API integration checks passed (auth, feed, profiles, details, libraries, validation, Jellyfin negotiation, profile-linked progress and stop).');
 } catch (error) {
   console.error(output.slice(-6000)); throw error;
 } finally {
-  await stop(); await rm(dir, { recursive: true, force: true });
+  await stop();
+  if (jellyfin.listening) await new Promise(resolve => jellyfin.close(resolve));
+  await rm(dir, { recursive: true, force: true });
 }
