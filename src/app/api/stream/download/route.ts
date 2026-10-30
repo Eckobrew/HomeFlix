@@ -65,67 +65,99 @@ function findTorrentFilePath(
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const hash = searchParams.get('hash');
+  const rawPath = searchParams.get('path');
   const fileIndexParam = searchParams.get('fileIndex');
   const fileIndex = fileIndexParam !== null ? parseInt(fileIndexParam, 10) : undefined;
   const startSec = parseFloat(searchParams.get('start') || '0');
   const forceTranscode = searchParams.get('transcode') === '1';
 
-  if (!hash) {
-    return NextResponse.json({ error: 'Missing torrent hash' }, { status: 400 });
-  }
-
-  const client = new QBittorrentClient();
-  if (!client.isConfigured()) {
-    return NextResponse.json({ error: 'qBittorrent is not configured' }, { status: 503 });
-  }
-
-  // Fetch torrent info
-  const rawList = await client.getAllActiveTorrents();
-  const torrent = rawList.find((t) => t.hash.toLowerCase() === hash.toLowerCase());
-
-  if (!torrent) {
-    return NextResponse.json({ error: 'Torrent not found' }, { status: 404 });
-  }
-
-  // Ensure sequential downloading & first/last piece priority are enabled
-  if (!torrent.seq_dl || !torrent.f_l_piece_prio) {
-    await client.ensureSequentialAndHeader(torrent.hash, torrent.seq_dl, torrent.f_l_piece_prio);
-  }
-
-  // Get file list
-  const files = await client.getTorrentFiles(torrent.hash);
-  let targetFile =
-    fileIndex !== undefined && files[fileIndex]
-      ? files[fileIndex]
-      : files.filter((f) => isVideoFile(f.name)).sort((a, b) => b.size - a.size)[0];
-
-  if (!targetFile && files.length > 0) {
-    targetFile = files[0];
-  }
-
-  if (!targetFile) {
-    return NextResponse.json({ error: 'No video files found in torrent' }, { status: 404 });
-  }
-
   const config = getServerConfig();
   const downloadsPath = config.downloadsPath || '/downloads';
 
-  const resolvedPath = findTorrentFilePath(
-    downloadsPath,
-    torrent.content_path,
-    torrent.name,
-    targetFile.name
-  );
+  let resolvedPath: string | null = null;
+  let isActivelyDownloading = false;
+  let targetFileSize = 0;
+  let targetFileProgress = 1.0;
 
-  if (!resolvedPath) {
-    return NextResponse.json(
-      {
-        error: `Torrent file not found in downloads volume (${downloadsPath}). Check your volume mount settings.`,
-        torrentName: torrent.name,
-        fileName: targetFile.name,
-      },
-      { status: 404 }
+  // 1. Synthetic testing or direct path streaming
+  if (rawPath) {
+    const candidate = path.resolve(downloadsPath, rawPath);
+    // Security check: ensure path does not escape downloads volume
+    if (!candidate.startsWith(path.resolve(downloadsPath))) {
+      return NextResponse.json({ error: 'Invalid file path' }, { status: 403 });
+    }
+    if (!fs.existsSync(candidate)) {
+      return NextResponse.json({ error: 'Synthetic media file not found' }, { status: 404 });
+    }
+    resolvedPath = candidate;
+    isActivelyDownloading = searchParams.get('growing') === '1';
+    targetFileSize = fs.statSync(candidate).size;
+    targetFileProgress = isActivelyDownloading ? 0.5 : 1.0;
+  } else {
+    // 2. Standard torrent hash streaming
+    if (!hash) {
+      return NextResponse.json({ error: 'Missing torrent hash or path' }, { status: 400 });
+    }
+
+    const client = new QBittorrentClient();
+    if (!client.isConfigured()) {
+      return NextResponse.json({ error: 'qBittorrent is not configured' }, { status: 503 });
+    }
+
+    // Fetch torrent info
+    const rawList = await client.getAllActiveTorrents();
+    const torrent = rawList.find((t) => t.hash.toLowerCase() === hash.toLowerCase());
+
+    if (!torrent) {
+      return NextResponse.json({ error: 'Torrent not found' }, { status: 404 });
+    }
+
+    // Ensure sequential downloading & first/last piece priority are enabled
+    if (!torrent.seq_dl || !torrent.f_l_piece_prio) {
+      await client.ensureSequentialAndHeader(torrent.hash, torrent.seq_dl, torrent.f_l_piece_prio);
+    }
+
+    // Get file list
+    const files = await client.getTorrentFiles(torrent.hash);
+    let targetFile =
+      fileIndex !== undefined && files[fileIndex]
+        ? files[fileIndex]
+        : files.filter((f) => isVideoFile(f.name)).sort((a, b) => b.size - a.size)[0];
+
+    if (!targetFile && files.length > 0) {
+      targetFile = files[0];
+    }
+
+    if (!targetFile) {
+      return NextResponse.json({ error: 'No video files found in torrent' }, { status: 404 });
+    }
+
+    resolvedPath = findTorrentFilePath(
+      downloadsPath,
+      torrent.content_path,
+      torrent.name,
+      targetFile.name
     );
+
+    if (!resolvedPath) {
+      return NextResponse.json(
+        {
+          error: `Torrent file not found in downloads volume (${downloadsPath}). Check your volume mount settings.`,
+          torrentName: torrent.name,
+          fileName: targetFile.name,
+        },
+        { status: 404 }
+      );
+    }
+
+    targetFileSize = targetFile.size;
+    targetFileProgress = targetFile.progress;
+    isActivelyDownloading =
+      targetFile.progress < 0.999 &&
+      (torrent.state.toLowerCase().includes('dl') ||
+        torrent.state.toLowerCase().includes('download') ||
+        torrent.dlspeed > 0 ||
+        torrent.progress < 1.0);
   }
 
   let stat: fs.Stats;
@@ -260,6 +292,8 @@ export async function GET(request: NextRequest) {
       const fd = fileFd;
       (async () => {
         let position = 0;
+        let lastStatusCheck = 0;
+        let cachedStillDownloading = true;
         const CHUNK_SIZE = 64 * 1024;
         const buf = Buffer.alloc(CHUNK_SIZE);
 
@@ -275,13 +309,31 @@ export async function GET(request: NextRequest) {
               }
             } else {
               // Reached current EOF on disk!
-              // Check if torrent has finished downloading
-              const checkClient = new QBittorrentClient();
-              const active = await checkClient.getAllActiveTorrents();
-              const currTorrent = active.find((t) => t.hash.toLowerCase() === hash.toLowerCase());
-              const stillDownloading = currTorrent ? currTorrent.progress < 1.0 : false;
+              // For synthetic path testing:
+              if (rawPath) {
+                if (isActivelyDownloading && !isStreamAborted && !ffmpegProc.killed) {
+                  await new Promise((resolve) => setTimeout(resolve, 400));
+                  continue;
+                } else {
+                  break;
+                }
+              }
 
-              if (stillDownloading && !isStreamAborted && !ffmpegProc.killed) {
+              // Check if torrent has finished downloading (throttled to every 3s to support multi-streamer scale)
+              const now = Date.now();
+              if (now - lastStatusCheck > 3000) {
+                lastStatusCheck = now;
+                try {
+                  const checkClient = new QBittorrentClient();
+                  const active = await checkClient.getAllActiveTorrents();
+                  const currTorrent = active.find((t) => t.hash.toLowerCase() === hash?.toLowerCase());
+                  cachedStillDownloading = currTorrent ? currTorrent.progress < 1.0 : false;
+                } catch {
+                  cachedStillDownloading = true;
+                }
+              }
+
+              if (cachedStillDownloading && !isStreamAborted && !ffmpegProc.killed) {
                 // Wait 400ms for qBittorrent to download and flush more pieces to disk
                 await new Promise((resolve) => setTimeout(resolve, 400));
               } else {
@@ -309,15 +361,26 @@ export async function GET(request: NextRequest) {
   const stream = new ReadableStream({
     start(controller) {
       ffmpegProc.stdout.on('data', (chunk) => {
-        controller.enqueue(chunk);
+        try {
+          controller.enqueue(chunk);
+          if (controller.desiredSize !== null && controller.desiredSize <= 0) {
+            ffmpegProc.stdout.pause();
+          }
+        } catch {
+          // Controller might already be closed
+        }
       });
 
       ffmpegProc.stdout.on('end', () => {
-        controller.close();
+        try {
+          controller.close();
+        } catch {}
       });
 
       ffmpegProc.stdout.on('error', (err) => {
-        controller.error(err);
+        try {
+          controller.error(err);
+        } catch {}
       });
 
       ffmpegProc.stderr.on('data', (errData) => {
@@ -326,6 +389,11 @@ export async function GET(request: NextRequest) {
           console.warn('[FFmpeg Stream Warning]', msg);
         }
       });
+    },
+    pull() {
+      if (ffmpegProc.stdout.isPaused()) {
+        ffmpegProc.stdout.resume();
+      }
     },
     cancel() {
       isStreamAborted = true;
