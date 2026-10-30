@@ -174,6 +174,47 @@ export class JellyfinClient {
     }
   }
 
+  async findItemByTmdbId(tmdbId: number, type?: 'movie' | 'tv'): Promise<string | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const uid = await this.getFirstUserId();
+      const includeTypes = type === 'movie' ? 'Movie' : type === 'tv' ? 'Series' : 'Movie,Series';
+      const res = await fetch(
+        `${this.url}/Users/${uid}/Items?Recursive=true&IncludeItemTypes=${includeTypes}&Fields=ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const strId = String(tmdbId);
+        const item = (data.Items || []).find((i: JellyfinItem) => i.ProviderIds?.Tmdb === strId);
+        if (item) return item.Id;
+      }
+    } catch (e) {
+      console.error(`Error finding Jellyfin item by TMDB ID ${tmdbId}:`, e);
+    }
+    return null;
+  }
+
+  async findItemByName(name: string, type?: 'movie' | 'tv'): Promise<string | null> {
+    if (!this.isConfigured() || !name) return null;
+    try {
+      const uid = await this.getFirstUserId();
+      const includeTypes = type === 'movie' ? 'Movie' : type === 'tv' ? 'Series' : 'Movie,Series';
+      const res = await fetch(
+        `${this.url}/Users/${uid}/Items?SearchTerm=${encodeURIComponent(name)}&IncludeItemTypes=${includeTypes}&Fields=ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const cleanName = name.trim().toLowerCase();
+        const item = (data.Items || []).find((i: JellyfinItem) => (i.Name || '').trim().toLowerCase() === cleanName)
+          || (data.Items || [])[0];
+        if (item) return item.Id;
+      }
+    } catch {}
+    return null;
+  }
+
   async createUser(name: string): Promise<{ id: string; name: string } | null> {
     if (!this.isConfigured() || !name) return null;
     try {
@@ -331,10 +372,20 @@ export class JellyfinClient {
     }
 
     let targetItemId = itemId;
+    if (itemId.startsWith('seerr-')) {
+      const match = itemId.match(/^seerr-(movie|tv)-(\d+)$/);
+      if (match) {
+        const type = match[1] === 'movie' ? 'movie' : 'tv';
+        const tmdbId = Number(match[2]);
+        const found = await this.findItemByTmdbId(tmdbId, type);
+        if (found) targetItemId = found;
+      }
+    }
+
     try {
-      const details = await this.getItemDetails(itemId);
+      const details = await this.getItemDetails(targetItemId);
       if (details?.type === 'Series') {
-        const epId = details.playableEpisodeId || (await this.getSeriesFirstPlayableEpisodeId(itemId));
+        const epId = details.playableEpisodeId || (await this.getSeriesFirstPlayableEpisodeId(targetItemId));
         if (epId) targetItemId = epId;
       }
     } catch {}

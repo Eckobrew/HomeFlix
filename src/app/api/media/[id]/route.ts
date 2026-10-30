@@ -112,17 +112,41 @@ export async function GET(
 
     if (tmdbId > 0) {
       try {
+        const attachJellyfinMatch = async (item: any, type: 'movie' | 'tv') => {
+          if (!jellyfin.isConfigured() || !item) return item;
+          try {
+            const jfId = (await jellyfin.findItemByTmdbId(tmdbId, type)) ||
+              (item.title ? await jellyfin.findItemByName(item.title, type) : null);
+            if (jfId) {
+              const jfDetails = await jellyfin.getItemDetails(jfId);
+              if (jfDetails) {
+                item.jellyfinId = jfDetails.id;
+                item.playableEpisodeId = jfDetails.playableEpisodeId;
+                item.videoStreamUrl = jfDetails.videoStreamUrl;
+                item.status = 'available';
+                item.source = 'jellyfin';
+                if (jfDetails.seasons && jfDetails.seasons.length > 0) {
+                  item.seasons = jfDetails.seasons;
+                }
+              }
+            }
+          } catch {}
+          return item;
+        };
+
         if (explicitType === 'movie') {
-          const movieItem = await seerr.getMovieDetails(tmdbId);
+          let movieItem = await seerr.getMovieDetails(tmdbId);
           if (movieItem) {
+            movieItem = await attachJellyfinMatch(movieItem, 'movie');
             return NextResponse.json(
               { item: movieItem },
               { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
             );
           }
         } else if (explicitType === 'tv') {
-          const tvItem = await seerr.getTvDetails(tmdbId);
+          let tvItem = await seerr.getTvDetails(tmdbId);
           if (tvItem) {
+            tvItem = await attachJellyfinMatch(tvItem, 'tv');
             return NextResponse.json(
               { item: tvItem },
               { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
@@ -131,15 +155,17 @@ export async function GET(
         } else {
           // If no type was specified (legacy ID e.g. seerr-27205 without type param),
           // Check movie details first
-          const movieItem = await seerr.getMovieDetails(tmdbId);
+          let movieItem = await seerr.getMovieDetails(tmdbId);
           if (movieItem) {
+            movieItem = await attachJellyfinMatch(movieItem, 'movie');
             return NextResponse.json(
               { item: movieItem },
               { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
             );
           }
-          const tvItem = await seerr.getTvDetails(tmdbId);
+          let tvItem = await seerr.getTvDetails(tmdbId);
           if (tvItem) {
+            tvItem = await attachJellyfinMatch(tvItem, 'tv');
             return NextResponse.json(
               { item: tvItem },
               { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate' } }
