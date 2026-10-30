@@ -442,7 +442,7 @@ export class JellyfinClient {
 
           if (mediaSource.SupportsDirectPlay) {
             return {
-              streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
+              streamUrl: `${this.url}/Videos/${targetItemId}/stream.mp4?api_key=${this.apiKey}`,
               isTranscoding: false,
               playSessionId: data.PlaySessionId,
               mediaSourceId: mediaSource.Id,
