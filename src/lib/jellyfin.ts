@@ -359,6 +359,7 @@ export class JellyfinClient {
   ): Promise<{
     streamUrl: string;
     isTranscoding: boolean;
+    error?: string;
     transcodeReasons?: string;
     playSessionId?: string;
     mediaSourceId?: string;
@@ -369,6 +370,7 @@ export class JellyfinClient {
       return {
         streamUrl: '',
         isTranscoding: false,
+        error: 'Jellyfin is not configured or itemId is missing',
       };
     }
 
@@ -462,6 +464,19 @@ export class JellyfinClient {
         const data = await res.json();
         const mediaSource = data.MediaSources?.[0];
         if (mediaSource) {
+          if (
+            mediaSource.LocationType === 'Virtual' ||
+            (!mediaSource.SupportsDirectPlay &&
+              !mediaSource.SupportsDirectStream &&
+              !mediaSource.TranscodingUrl &&
+              !mediaSource.Container)
+          ) {
+            return {
+              streamUrl: '',
+              isTranscoding: false,
+              error: 'Media file has not been downloaded or is not available on Jellyfin.',
+            };
+          }
           let totalDurationTicks = mediaSource.RunTimeTicks;
           if (!totalDurationTicks || totalDurationTicks <= 0) {
             const itemDetails = await this.getItemDetails(itemId);
@@ -528,8 +543,9 @@ export class JellyfinClient {
     }
 
     return {
-      streamUrl: `${this.url}/Videos/${itemId}/stream?static=true&api_key=${this.apiKey}`,
+      streamUrl: '',
       isTranscoding: false,
+      error: 'Media file has not been downloaded or is not available on Jellyfin.',
     };
   }
 

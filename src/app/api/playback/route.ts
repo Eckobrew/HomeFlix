@@ -35,6 +35,12 @@ export async function GET(request: NextRequest) {
       startTimeTicks,
       audioCodecs,
     });
+    if (!result.streamUrl) {
+      return NextResponse.json(
+        { error: result.error || 'Media file has not been downloaded or is not available' },
+        { status: 404 }
+      );
+    }
     return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to get playback stream:', error);
