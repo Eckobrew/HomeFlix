@@ -147,8 +147,8 @@ export class JellyfinClient {
   }
 
   getUserImageUrl(userId: string): string {
-    if (!this.url || !userId) return '';
-    return `${this.url}/Users/${userId}/Images/Primary?quality=90`;
+    if (!userId) return '';
+    return `/api/mobile/v1/image?userId=${userId}&type=Primary`;
   }
 
   async findUserByName(name: string): Promise<{ id: string; name: string } | null> {
@@ -287,7 +287,7 @@ export class JellyfinClient {
           avatarColor: palette.avatarColor,
           avatarBg: palette.avatarBg,
           initials,
-          avatarUrl: u.PrimaryImageTag ? `${this.url}/Users/${u.Id}/Images/Primary` : undefined,
+          avatarUrl: u.PrimaryImageTag ? `/api/mobile/v1/image?userId=${u.Id}&type=Primary` : undefined,
           isAdministrator: Boolean(u.Policy?.IsAdministrator),
         };
       });
@@ -298,8 +298,8 @@ export class JellyfinClient {
   }
 
   getImageUrl(itemId: string, type: 'Primary' | 'Backdrop' | 'Thumb' = 'Primary', maxWidth = 800): string {
-    if (!this.url || !itemId) return '';
-    return `${this.url}/Items/${itemId}/Images/${type}?maxWidth=${maxWidth}&quality=90`;
+    if (!itemId) return '';
+    return `/api/mobile/v1/image?itemId=${itemId}&type=${type}&maxWidth=${maxWidth}`;
   }
 
   getStreamUrl(itemId: string): string {

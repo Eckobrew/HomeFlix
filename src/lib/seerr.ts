@@ -91,13 +91,15 @@ export class SeerrClient {
     const relDate = item.releaseDate || item.firstAirDate;
     const year = relDate ? new Date(relDate).getFullYear() : undefined;
 
-    const posterUrl = item.posterPath
+    const rawPoster = item.posterPath
       ? `https://image.tmdb.org/t/p/w500${item.posterPath}`
       : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=80';
+    const posterUrl = `/api/mobile/v1/image?url=${encodeURIComponent(rawPoster)}`;
 
-    const backdropUrl = item.backdropPath
+    const rawBackdrop = item.backdropPath
       ? `https://image.tmdb.org/t/p/original${item.backdropPath}`
-      : posterUrl;
+      : rawPoster;
+    const backdropUrl = `/api/mobile/v1/image?url=${encodeURIComponent(rawBackdrop)}`;
 
     const status = this.mapStatus(item.mediaInfo?.status);
     const durationMinutes = (item as any).runtime || (item.mediaInfo as any)?.runtime || (item as any).durationMinutes;
