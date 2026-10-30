@@ -11,9 +11,12 @@ import { GET as streamDownload } from '@/app/api/stream/download/route';
 import { GET as playback } from '@/app/api/playback/route';
 import { POST as progress } from '@/app/api/playback/progress/route';
 import { GET as subtitles } from '@/app/api/subtitles/route';
+import { GET as trailer } from '@/app/api/trailer/route';
 import { POST as requestMedia } from '@/app/api/request/route';
 import { handleImage } from '@/lib/image-proxy';
 import { getHomeflixProfiles } from '@/lib/profiles';
+import { JellyfinClient } from '@/lib/jellyfin';
+import { SeerrClient } from '@/lib/seerr';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -57,7 +60,7 @@ async function dispatch(request: NextRequest, { params }: Context) {
     return NextResponse.json({ profiles: await getHomeflixProfiles() });
   }
   if (get && route === 'home') return home(request);
-  if (get && /^library\/(movies|tv)$/.test(route)) {
+  if (get && /^library\/(movies|tv|youtube)$/.test(route)) {
     return library(request, { params: { type: params.path[1] } });
   }
   if (get && params.path.length === 2 && params.path[0] === 'media') {
@@ -66,6 +69,39 @@ async function dispatch(request: NextRequest, { params }: Context) {
   if (get && params.path.length === 3 && params.path[0] === 'media' && params.path[2] === 'recommendations') {
     return recommendations(request, { params: { id: params.path[1] } });
   }
+  if (get && params.path.length === 3 && params.path[0] === 'media' && params.path[2] === 'collection') {
+    const id = params.path[1];
+    let tmdbId = 0;
+    if (id.startsWith('seerr-movie-')) tmdbId = Number(id.replace('seerr-movie-', ''));
+    else if (id.startsWith('seerr-')) tmdbId = Number(id.replace(/^seerr-(?:movie-|tv-)?/, ''));
+    else if (/^\d+$/.test(id)) tmdbId = Number(id);
+
+    const seerr = new SeerrClient();
+    const jellyfin = new JellyfinClient();
+
+    if (!tmdbId && jellyfin.isConfigured()) {
+      try {
+        const jfCol = await jellyfin.getMovieCollection(id);
+        if (jfCol.length > 0) {
+          return NextResponse.json({ collection: { name: 'Movie Collection', parts: jfCol } });
+        }
+        const item = await jellyfin.getItemDetails(id);
+        if (item?.tmdbId) tmdbId = item.tmdbId;
+      } catch {}
+    }
+
+    if (tmdbId && seerr.isConfigured()) {
+      try {
+        const col = await seerr.getMovieCollection(tmdbId);
+        if (col) {
+          return NextResponse.json({ collection: col });
+        }
+      } catch {}
+    }
+
+    return NextResponse.json({ collection: null });
+  }
+  if (get && route === 'trailer') return trailer(request);
   if (get && /^categories\/(movies|tv|requests)$/.test(route)) {
     return categories(request, { params: { type: params.path[1] } });
   }

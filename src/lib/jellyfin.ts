@@ -330,6 +330,15 @@ export class JellyfinClient {
       };
     }
 
+    let targetItemId = itemId;
+    try {
+      const details = await this.getItemDetails(itemId);
+      if (details?.type === 'Series') {
+        const epId = details.playableEpisodeId || (await this.getSeriesFirstPlayableEpisodeId(itemId));
+        if (epId) targetItemId = epId;
+      }
+    } catch {}
+
     try {
       const uid = await this.getFirstUserId();
       const startTimeTicksParam =
@@ -382,7 +391,7 @@ export class JellyfinClient {
       };
 
       const res = await fetch(
-        `${this.url}/Items/${itemId}/PlaybackInfo?UserId=${uid}${startTimeTicksParam}`,
+        `${this.url}/Items/${targetItemId}/PlaybackInfo?UserId=${uid}${startTimeTicksParam}`,
         {
           method: 'POST',
           headers: {
@@ -960,12 +969,15 @@ export class JellyfinClient {
       if (!data.Items || data.Items.length === 0) {
         // Fallback: Fetch all episodes directly for the series and group by ParentIndexNumber
         const allEpRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData`,
+          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData,ImageTags`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         if (allEpRes.ok) {
           const allEpData = await allEpRes.json();
-          const epItems = (allEpData.Items || []).filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual');
+          const rawItems = allEpData.Items || [];
+          const epItems = rawItems.some((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            ? rawItems.filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            : rawItems;
           const seasonMap = new Map<number, Episode[]>();
           for (const ep of epItems) {
             const sNum = ep.ParentIndexNumber || 1;
@@ -985,7 +997,7 @@ export class JellyfinClient {
               playbackPositionTicks: epPlaybackTicks,
               progressPercent: epProgress,
               played: epPlayed,
-              thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+              thumbnailUrl: `/api/mobile/v1/image?itemId=${ep.Id}&type=Primary&maxWidth=400`,
               jellyfinId: ep.Id,
               videoStreamUrl: this.getStreamUrl(ep.Id),
             });
@@ -1006,15 +1018,17 @@ export class JellyfinClient {
       for (const s of data.Items || []) {
         // Fetch episodes for season
         const epRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType,UserData`,
+          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType,UserData,ImageTags`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         let episodes: Episode[] = [];
         if (epRes.ok) {
           const epData = await epRes.json();
-          episodes = (epData.Items || [])
-            .filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
-            .map((ep: JellyfinItem) => {
+          const rawItems = epData.Items || [];
+          const filtered = rawItems.some((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            ? rawItems.filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            : rawItems;
+          episodes = filtered.map((ep: JellyfinItem) => {
               const epPlaybackTicks = ep.UserData?.PlaybackPositionTicks || 0;
               const epTotalTicks = ep.RunTimeTicks || 0;
               const epProgress = epTotalTicks > 0 ? Math.round((epPlaybackTicks / epTotalTicks) * 100) : 0;
@@ -1030,7 +1044,7 @@ export class JellyfinClient {
                 playbackPositionTicks: epPlaybackTicks,
                 progressPercent: epProgress,
                 played: epPlayed,
-                thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+                thumbnailUrl: `/api/mobile/v1/image?itemId=${ep.Id}&type=Primary&maxWidth=400`,
                 jellyfinId: ep.Id,
                 videoStreamUrl: this.getStreamUrl(ep.Id),
               };
@@ -1050,6 +1064,35 @@ export class JellyfinClient {
       return seasons;
     } catch (e) {
       console.error('Error fetching seasons from Jellyfin:', e);
+      return [];
+    }
+  }
+
+  async getMovieCollection(itemId: string): Promise<MediaItem[]> {
+    if (!this.isConfigured() || !itemId) return [];
+    try {
+      const uid = await this.getFirstUserId();
+      const itemRes = await fetch(
+        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Collections,ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (!itemRes.ok) return [];
+      const itemData = await itemRes.json();
+      const collections = itemData.Collections || [];
+      if (collections.length > 0) {
+        const colId = collections[0].Id;
+        const colItemsRes = await fetch(
+          `${this.url}/Users/${uid}/Items?ParentId=${colId}&SortBy=ProductionYear,SortName&SortOrder=Ascending&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
+          { headers: this.getHeaders(), cache: 'no-store' }
+        );
+        if (colItemsRes.ok) {
+          const colData = await colItemsRes.json();
+          return (colData.Items || []).map((i: JellyfinItem) => this.mapJellyfinItem(i));
+        }
+      }
+      return [];
+    } catch (e) {
+      console.error('Error fetching movie collection from Jellyfin:', e);
       return [];
     }
   }

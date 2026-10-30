@@ -539,6 +539,38 @@ export class SeerrClient {
     }
   }
 
+  async getMovieCollection(tmdbId: number): Promise<{ name?: string; overview?: string; parts: MediaItem[] } | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const res = await fetch(`${this.url}/api/v1/movie/${tmdbId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 3600 },
+      });
+      if (!res.ok) return null;
+      const movieData = await res.json();
+      const colId = movieData.collection?.id;
+      if (!colId) return null;
+
+      const colRes = await fetch(`${this.url}/api/v1/collection/${colId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 3600 },
+      });
+      if (!colRes.ok) return null;
+      const colData = await colRes.json();
+      const parts = (colData.parts || []).map((p: any) =>
+        this.mapResult({ ...p, mediaType: 'movie' })
+      );
+      return {
+        name: colData.name,
+        overview: colData.overview,
+        parts,
+      };
+    } catch (e) {
+      console.error(`Error fetching collection for movie ${tmdbId}:`, e);
+      return null;
+    }
+  }
+
   async getUserRequests(take = 20): Promise<MediaItem[]> {
     if (!this.isConfigured()) return [];
     try {
