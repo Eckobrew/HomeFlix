@@ -345,7 +345,7 @@ export class JellyfinClient {
 
   getStreamUrl(itemId: string): string {
     if (!this.url || !itemId) return '';
-    return `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`;
+    return `${this.url}/Videos/${itemId}/stream?static=true&api_key=${this.apiKey}`;
   }
 
   async getPlaybackStream(
@@ -397,22 +397,21 @@ export class JellyfinClient {
           ? `&StartTimeTicks=${options.startTimeTicks}`
           : '';
 
-      const canDirectHevc = Boolean(options?.canPlayHevc && !options?.forceTranscode);
+      const canDirectHevc = Boolean(options?.canPlayHevc !== false && !options?.forceTranscode);
       const directVideoCodecs = options?.forceTranscode
         ? ''
         : canDirectHevc
-        ? 'h264,hevc'
+        ? 'h264,hevc,h265,vp8,vp9,av1'
         : 'h264';
 
+      const supportedContainers = ['mkv', 'mp4', 'm4v', 'mov', 'webm', 'ts', 'avi'];
       const directPlayProfiles = directVideoCodecs
-        ? [
-            {
-              Container: 'mp4,m4v,mov',
-              Type: 'Video',
-              VideoCodec: directVideoCodecs,
-              AudioCodec: 'aac,mp3',
-            },
-          ]
+        ? supportedContainers.map((container) => ({
+            Container: container,
+            Type: 'Video',
+            VideoCodec: directVideoCodecs,
+            AudioCodec: 'aac,mp3,ac3,eac3,opus,flac,vorbis,pcm,dca,dts',
+          }))
         : [];
 
       const profilePayload = {
@@ -468,6 +467,32 @@ export class JellyfinClient {
             ? totalDurationTicks / 10000000
             : undefined;
 
+          // 1. Direct Play preferred if supported and transcoding was not forced
+          if (!options?.forceTranscode && mediaSource.SupportsDirectPlay) {
+            const ext = mediaSource.Container ? `.${mediaSource.Container}` : '';
+            return {
+              streamUrl: `${this.url}/Videos/${targetItemId}/stream${ext}?static=true&mediaSourceId=${mediaSource.Id}&api_key=${this.apiKey}`,
+              isTranscoding: false,
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
+            };
+          }
+
+          // 2. Direct Stream (container remux without video re-encoding)
+          if (!options?.forceTranscode && mediaSource.SupportsDirectStream && mediaSource.DirectStreamUrl) {
+            return {
+              streamUrl: `${this.url}${mediaSource.DirectStreamUrl}`,
+              isTranscoding: false,
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
+            };
+          }
+
+          // 3. Fallback to Transcoding
           if (mediaSource.TranscodingUrl) {
             return {
               streamUrl: `${this.url}${mediaSource.TranscodingUrl}`,
@@ -480,27 +505,16 @@ export class JellyfinClient {
             };
           }
 
-          if (mediaSource.DirectStreamUrl) {
-            return {
-              streamUrl: `${this.url}${mediaSource.DirectStreamUrl}`,
-              isTranscoding: false,
-              playSessionId: data.PlaySessionId,
-              mediaSourceId: mediaSource.Id,
-              totalDurationTicks,
-              durationSeconds,
-            };
-          }
-
-          if (mediaSource.SupportsDirectPlay) {
-            return {
-              streamUrl: `${this.url}/Videos/${targetItemId}/stream.mp4?api_key=${this.apiKey}`,
-              isTranscoding: false,
-              playSessionId: data.PlaySessionId,
-              mediaSourceId: mediaSource.Id,
-              totalDurationTicks,
-              durationSeconds,
-            };
-          }
+          // 4. Fallback static direct stream
+          const ext = mediaSource.Container ? `.${mediaSource.Container}` : '';
+          return {
+            streamUrl: `${this.url}/Videos/${targetItemId}/stream${ext}?static=true&mediaSourceId=${mediaSource.Id}&api_key=${this.apiKey}`,
+            isTranscoding: false,
+            playSessionId: data.PlaySessionId,
+            mediaSourceId: mediaSource.Id,
+            totalDurationTicks,
+            durationSeconds,
+          };
         }
       }
     } catch (e) {
@@ -508,7 +522,7 @@ export class JellyfinClient {
     }
 
     return {
-      streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
+      streamUrl: `${this.url}/Videos/${itemId}/stream?static=true&api_key=${this.apiKey}`,
       isTranscoding: false,
     };
   }
