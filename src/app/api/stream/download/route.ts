@@ -169,24 +169,17 @@ export async function GET(request: NextRequest) {
 
   // Check initial buffer: ensure at least 10MB exists so headers/keyframes are present
   const minBuffer = 10 * 1024 * 1024;
-  if (stat.size < minBuffer && targetFile.size > minBuffer && targetFile.progress < 0.01) {
+  if (stat.size < minBuffer && targetFileSize > minBuffer && targetFileProgress < 0.01) {
     return NextResponse.json(
       {
         error: 'Buffering initial pieces. Please wait a few seconds before streaming.',
-        progress: targetFile.progress,
-        downloadSpeed: torrent.dlspeed,
+        progress: targetFileProgress,
       },
       { status: 425 }
     );
   }
 
   const ext = path.extname(resolvedPath).toLowerCase();
-  const isActivelyDownloading =
-    targetFile.progress < 0.999 &&
-    (torrent.state.toLowerCase().includes('dl') ||
-      torrent.state.toLowerCase().includes('download') ||
-      torrent.dlspeed > 0 ||
-      torrent.progress < 1.0);
 
   // If download is already 100% complete and directly playable (e.g. MP4/AAC)
   const isDirectWebPlayable =
