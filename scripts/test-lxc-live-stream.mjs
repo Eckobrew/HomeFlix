@@ -188,6 +188,8 @@ async function run() {
 
   // Step 5: Verify no orphaned FFmpeg processes remain
   console.log(`\n--- Step 5: Clean Process State (No Zombies) ---`);
+  // Allow brief grace period for client disconnect signal to propagate and terminate FFmpeg
+  await new Promise((r) => setTimeout(r, 800));
   const activeFfmpegCount = parseInt(
     execSync(`ps aux | grep "[f]fmpeg.*frag_keyframe" | wc -l || echo 0`).toString().trim(),
     10
