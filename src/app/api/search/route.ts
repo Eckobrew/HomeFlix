@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { SeerrClient } from '@/lib/seerr';
+import { QBittorrentClient } from '@/lib/qbittorrent';
 import { MOCK_SEERR_SEARCH_RESULTS, MOCK_RECENT_MOVIES, MOCK_RECENT_SERIES, MOCK_CONTINUE_WATCHING } from '@/lib/mock-data';
 import { MediaItem } from '@/types';
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   const seerr = new SeerrClient();
+  const qb = new QBittorrentClient();
 
   if (!seerr.isConfigured()) {
     // Search mock database
@@ -44,7 +46,34 @@ export async function GET(request: NextRequest) {
   try {
     const results = await seerr.search(query);
 
-    // If item is available and Jellyfin is configured, we can attach Jellyfin stream URL or ID
+    // Cross-reference active qBittorrent downloads
+    if (qb.isConfigured()) {
+      try {
+        const dlList = await qb.getStreamableDownloads();
+        if (dlList.length > 0) {
+          results.forEach((item) => {
+            const matchedDl = dlList.find(
+              (d) =>
+                d.name.toLowerCase().includes(item.title.toLowerCase()) ||
+                item.title.toLowerCase().includes(d.name.toLowerCase())
+            );
+            if (matchedDl) {
+              item.isDownloading = true;
+              item.downloadProgress = matchedDl.progressPercent;
+              item.downloadSpeed = matchedDl.downloadSpeed;
+              item.downloadEta = matchedDl.eta;
+              item.torrentHash = matchedDl.hash;
+              item.videoStreamUrl = matchedDl.streamUrl || `/api/stream/download?hash=${matchedDl.hash}`;
+              item.downloadStreamUrl = matchedDl.streamUrl || `/api/stream/download?hash=${matchedDl.hash}`;
+              item.status = 'processing';
+            }
+          });
+        }
+      } catch (qbErr) {
+        console.warn('Failed querying qBittorrent downloads during search:', qbErr);
+      }
+    }
+
     return NextResponse.json({
       results,
       isDemoMode: false,

@@ -96,12 +96,12 @@ export class QBittorrentClient {
         return null;
       }
 
-      // Extract SID from Set-Cookie header
+      // Extract cookie from Set-Cookie header (supports both SID= and QBT_SID_<port>=)
       const rawCookie = res.headers.get('set-cookie');
       if (rawCookie) {
-        const match = rawCookie.match(/SID=([^;]+)/);
-        if (match) {
-          this.sidCookie = match[1];
+        const cookiePart = rawCookie.split(';')[0]?.trim();
+        if (cookiePart) {
+          this.sidCookie = cookiePart;
           // qBittorrent sessions normally last an hour, cache for 45 minutes
           this.cookieExpiresAt = now + 45 * 60 * 1000;
           return this.sidCookie;
@@ -129,7 +129,7 @@ export class QBittorrentClient {
     };
 
     if (sid) {
-      headers['Cookie'] = `SID=${sid}`;
+      headers['Cookie'] = sid.includes('=') ? sid : `SID=${sid}`;
     }
 
     const url = `${this.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
@@ -238,7 +238,7 @@ export class QBittorrentClient {
         Referer: this.baseUrl,
         Origin: this.baseUrl,
       };
-      if (sid) headers['Cookie'] = `SID=${sid}`;
+      if (sid) headers['Cookie'] = sid.includes('=') ? sid : `SID=${sid}`;
 
       if (!seq) {
         await fetch(`${this.baseUrl}/api/v2/torrents/toggleSequentialDownload`, {
@@ -264,6 +264,31 @@ export class QBittorrentClient {
   }
 
   /**
+   * Sets maximal download priority (7) on a specific file in a torrent (e.g. current episode).
+   */
+  async prioritizeFile(hash: string, fileIndex: number): Promise<boolean> {
+    try {
+      const sid = await this.getAuthCookie();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Referer: this.baseUrl,
+        Origin: this.baseUrl,
+      };
+      if (sid) headers['Cookie'] = sid.includes('=') ? sid : `SID=${sid}`;
+
+      await fetch(`${this.baseUrl}/api/v2/torrents/filePrio`, {
+        method: 'POST',
+        headers,
+        body: `hash=${hash}&id=${fileIndex}&priority=7`,
+      });
+      return true;
+    } catch (err) {
+      console.warn(`Failed to prioritize file ${fileIndex} in torrent ${hash}:`, err);
+      return false;
+    }
+  }
+
+  /**
    * Transforms raw qBittorrent torrents into clean DownloadingTorrentItem objects,
    * detecting largest video files and calculating stream readiness.
    */
@@ -284,20 +309,36 @@ export class QBittorrentClient {
         t.f_l_piece_prio = true;
       }
 
-      // Retrieve files to locate media file
+      // Retrieve files to locate media file (handling season packs!)
       const files = await this.getTorrentFiles(t.hash);
       const mediaFiles = files
         .filter((f) => isVideoFile(f.name))
-        .sort((a, b) => b.size - a.size);
+        .sort((a, b) => {
+          // Sort chronologically by Season/Episode if matching SxxExx
+          const s1 = a.name.match(/s(\d+)e(\d+)/i);
+          const s2 = b.name.match(/s(\d+)e(\d+)/i);
+          if (s1 && s2) {
+            const seasonDiff = parseInt(s1[1], 10) - parseInt(s2[1], 10);
+            if (seasonDiff !== 0) return seasonDiff;
+            return parseInt(s1[2], 10) - parseInt(s2[2], 10);
+          }
+          return b.size - a.size;
+        });
 
-      const mainVideo = mediaFiles[0];
+      const allVideoFiles: DownloadingTorrentFile[] = mediaFiles.map((f) => ({
+        index: f.index,
+        name: f.name,
+        size: f.size,
+        progress: f.progress,
+        isMedia: true,
+      }));
 
-      // File is streamable if:
-      // 1. It is a video file
-      // 2. Downloaded at least ~15MB (or 2% of file) so moov/header is present
+      const mainVideo = allVideoFiles[0];
+
+      // File is streamable once video exists (BuiltinPlayer handles buffering until 15MB)
       const downloadedBytes = mainVideo ? mainVideo.progress * mainVideo.size : t.downloaded;
-      const minBuffer = 15 * 1024 * 1024; // 15MB initial buffer
-      const isStreamable = Boolean(mainVideo && downloadedBytes >= minBuffer);
+      const minBuffer = 15 * 1024 * 1024; // 15MB initial buffer threshold
+      const isReadyForPlayback = Boolean(mainVideo && downloadedBytes >= minBuffer);
 
       let videoInfo: DownloadingTorrentFile | undefined;
       if (mainVideo) {
@@ -324,11 +365,12 @@ export class QBittorrentClient {
         fLPiecePrio: t.f_l_piece_prio,
         category: t.category,
         tags: t.tags,
-        streamable: isStreamable,
-        streamUrl: isStreamable
+        streamable: Boolean(mainVideo),
+        streamUrl: mainVideo
           ? `/api/stream/download?hash=${t.hash}&fileIndex=${videoInfo?.index || 0}`
           : undefined,
         videoFile: videoInfo,
+        mediaFiles: allVideoFiles,
       });
     }
 

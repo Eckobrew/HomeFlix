@@ -54,6 +54,32 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     return true;
   });
 
+  const handleDownloadAndStream = async (item: MediaItem) => {
+    try {
+      const tmdbId = item.tmdbId || (item.id.startsWith('seerr-') ? Number(item.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined) || (item.seerrId ? Number(item.seerrId) : undefined);
+      if (tmdbId) {
+        fetch('/api/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mediaType: item.type === 'Series' ? 'tv' : 'movie',
+            mediaId: tmdbId,
+            seasons: item.type === 'Series' ? [1] : undefined,
+          }),
+        }).catch(console.error);
+      }
+      onPlay({
+        ...item,
+        status: 'processing',
+        isDownloading: true,
+        downloadProgress: item.downloadProgress || 0,
+      });
+    } catch (e) {
+      console.error('Failed to trigger download and stream:', e);
+      onPlay(item);
+    }
+  };
+
   return (
     <div className="pt-24 px-4 md:px-12 pb-20 min-h-screen">
       {/* Search Header & Filter Pills */}
@@ -164,6 +190,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                       <CheckCircle2 size={11} />
                       <span>ON JELLYFIN</span>
                     </span>
+                  ) : item.isDownloading || item.downloadStreamUrl ? (
+                    <span className="bg-blue-600/95 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow backdrop-blur-sm flex items-center space-x-1">
+                      <Download size={11} className="animate-bounce" />
+                      <span>DOWNLOADING ({item.downloadProgress || 0}%)</span>
+                    </span>
                   ) : isRequested ? (
                     <span className="bg-amber-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow backdrop-blur-sm flex items-center space-x-1">
                       <Clock size={11} />
@@ -179,7 +210,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
                 {/* Hover Quick Actions Overlay */}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-3">
-                  <div className="flex flex-col items-center space-y-2 w-full">
+                  <div className="flex flex-col items-center space-y-1.5 w-full">
                     {isAvailable ? (
                       <button
                         onClick={(e) => {
@@ -189,24 +220,50 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                         className="w-full py-2 rounded bg-white text-black font-bold text-xs flex items-center justify-center space-x-1 hover:bg-neutral-200 transition-colors shadow"
                       >
                         <Play size={14} className="fill-black" />
-                        <span>Watch Now</span>
+                        <span>Stream Now</span>
                       </button>
-                    ) : (
+                    ) : item.isDownloading || item.downloadStreamUrl ? (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onRequest(item);
+                          onPlay({
+                            ...item,
+                            videoStreamUrl: item.downloadStreamUrl || item.videoStreamUrl,
+                          });
                         }}
-                        disabled={isRequested}
-                        className={`w-full py-2 rounded font-bold text-xs flex items-center justify-center space-x-1 transition-colors shadow ${
-                          isRequested
-                            ? 'bg-amber-600 text-white cursor-default'
-                            : 'bg-red-600 hover:bg-red-500 text-white'
-                        }`}
+                        className="w-full py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center space-x-1 transition-colors shadow"
                       >
-                        {isRequested ? <Clock size={14} /> : <Download size={14} />}
-                        <span>{isRequested ? 'Requested' : 'Download via Seerr'}</span>
+                        <Play size={14} className="fill-white" />
+                        <span>Stream In-Progress ({item.downloadProgress || 0}%)</span>
                       </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadAndStream(item);
+                          }}
+                          className="w-full py-2 rounded bg-red-600 hover:bg-red-500 text-white font-bold text-xs flex items-center justify-center space-x-1 transition-colors shadow"
+                        >
+                          <Play size={14} className="fill-white" />
+                          <span>Download &amp; Stream</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRequest(item);
+                          }}
+                          disabled={isRequested}
+                          className={`w-full py-1.5 rounded font-medium text-xs flex items-center justify-center space-x-1 transition-colors border ${
+                            isRequested
+                              ? 'bg-amber-600/30 border-amber-600/50 text-amber-300 cursor-default'
+                              : 'bg-neutral-800/90 hover:bg-neutral-700 text-neutral-300 hover:text-white border-neutral-700'
+                          }`}
+                        >
+                          {isRequested ? <Clock size={12} /> : <Download size={12} />}
+                          <span>{isRequested ? 'Requested' : 'Request Only'}</span>
+                        </button>
+                      </>
                     )}
 
                     <button

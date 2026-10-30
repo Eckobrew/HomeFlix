@@ -269,15 +269,40 @@ export default function Home() {
   };
 
   const handleRequestSuccess = (requestedItem: MediaItem) => {
-    // Update status in local rows
-    setSections((prev) =>
-      prev.map((sec) => ({
+    const updated: MediaItem = {
+      ...requestedItem,
+      status: 'processing',
+      isDownloading: true,
+      downloadProgress: requestedItem.downloadProgress || 0,
+    };
+
+    // Update status in local rows immediately
+    setSections((prev) => {
+      const next = prev.map((sec) => ({
         ...sec,
-        items: sec.items.map((i) =>
-          i.id === requestedItem.id ? { ...i, status: 'requested' } : i
-        ),
-      }))
-    );
+        items: sec.items.map((i) => (i.id === updated.id ? updated : i)),
+      }));
+
+      // Ensure "my-requests" section exists and includes this newly requested item
+      const myReqSec = next.find((s) => s.id === 'my-requests');
+      if (myReqSec) {
+        if (!myReqSec.items.some((i) => i.id === updated.id)) {
+          myReqSec.items = [updated, ...myReqSec.items];
+        }
+      } else {
+        next.unshift({
+          id: 'my-requests',
+          title: '⚡ Your Requested Media (Downloading & In-Progress)',
+          items: [updated],
+        });
+      }
+      return next;
+    });
+
+    // Refresh home data in background to pull live status from Seerr & qBittorrent
+    setTimeout(() => {
+      loadHomeData();
+    }, 2000);
   };
 
   // Filter sections and items strictly corresponding to active tab
@@ -345,6 +370,20 @@ export default function Home() {
     if (activeTab === 'requests') {
       const res: MediaRowSection[] = [];
 
+      // 0. Active / in-progress user downloads and requests placed at the VERY TOP
+      const allRequested = [...sections, ...requestSections]
+        .flatMap((s) => s.items)
+        .filter((i) => i.status === 'requested' || i.status === 'processing' || i.isDownloading);
+      const uniqueRequested = Array.from(new Map(allRequested.map((i) => [i.id, i])).values());
+
+      if (uniqueRequested.length > 0) {
+        res.push({
+          id: 'my-requests',
+          title: '⚡ Your Requested Media (Downloading & In-Progress)',
+          items: uniqueRequested,
+        });
+      }
+
       // 1. Recommended for You (based on profile's watched content)
       const recommended = requestSections.find((s) => s.id === 'requests-recommended');
       if (recommended && recommended.items.length > 0) {
@@ -374,24 +413,24 @@ export default function Home() {
         res.push(topTv);
       }
 
-      // Active / in-progress user downloads and requests
-      const allRequested = [...sections, ...requestSections]
-        .flatMap((s) => s.items)
-        .filter((i) => i.status === 'requested' || i.status === 'processing');
-      const uniqueRequested = Array.from(new Map(allRequested.map((i) => [i.id, i])).values());
-
-      if (uniqueRequested.length > 0) {
-        res.push({
-          id: 'my-requests',
-          title: 'Your Requested Media (Downloading)',
-          items: uniqueRequested,
-        });
-      }
-
       return res;
     }
 
-    // Default 'home' tab: all sections
+    // Default 'home' tab: all sections, ensuring my-requests is displayed near the top
+    const allRequestedHome = [...sections, ...requestSections]
+      .flatMap((s) => s.items)
+      .filter((i) => i.status === 'requested' || i.status === 'processing' || i.isDownloading);
+    const uniqueRequestedHome = Array.from(new Map(allRequestedHome.map((i) => [i.id, i])).values());
+
+    if (uniqueRequestedHome.length > 0 && !sections.some((s) => s.id === 'my-requests')) {
+      const myReqSec: MediaRowSection = {
+        id: 'my-requests',
+        title: '⚡ Your Requested Media (Downloading & In-Progress)',
+        items: uniqueRequestedHome,
+      };
+      return [myReqSec, ...sections];
+    }
+
     return sections;
   }, [sections, requestSections, activeTab, movieCategories, tvCategories]);
 

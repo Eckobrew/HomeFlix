@@ -68,6 +68,8 @@ export async function GET(request: NextRequest) {
   const rawPath = searchParams.get('path');
   const fileIndexParam = searchParams.get('fileIndex');
   const fileIndex = fileIndexParam !== null ? parseInt(fileIndexParam, 10) : undefined;
+  const seasonParam = searchParams.get('season');
+  const episodeParam = searchParams.get('episode');
   const startSec = parseFloat(searchParams.get('start') || '0');
   const forceTranscode = searchParams.get('transcode') === '1';
 
@@ -117,12 +119,43 @@ export async function GET(request: NextRequest) {
       await client.ensureSequentialAndHeader(torrent.hash, torrent.seq_dl, torrent.f_l_piece_prio);
     }
 
-    // Get file list
+    // Get file list (handling season packs and multi-file torrents)
     const files = await client.getTorrentFiles(torrent.hash);
-    let targetFile =
-      fileIndex !== undefined && files[fileIndex]
-        ? files[fileIndex]
-        : files.filter((f) => isVideoFile(f.name)).sort((a, b) => b.size - a.size)[0];
+    let targetFile = fileIndex !== undefined && files[fileIndex] ? files[fileIndex] : undefined;
+
+    // If season and episode are specified, find matching episode file in season pack
+    if (!targetFile && (seasonParam || episodeParam)) {
+      const sNum = seasonParam ? parseInt(seasonParam, 10) : 1;
+      const epNum = episodeParam ? parseInt(episodeParam, 10) : 1;
+      const patterns = [
+        new RegExp(`s0*${sNum}[._ -]*e0*${epNum}\\b`, 'i'),
+        new RegExp(`\\b${sNum}x0*${epNum}\\b`, 'i'),
+        new RegExp(`\\be0*${epNum}\\b`, 'i'),
+        new RegExp(`[._ -]0*${epNum}[._ -]`, 'i'),
+      ];
+      for (const pattern of patterns) {
+        const found = files.find((f) => isVideoFile(f.name) && pattern.test(f.name));
+        if (found) {
+          targetFile = found;
+          break;
+        }
+      }
+    }
+
+    // Default: earliest episode if TV season pack, otherwise largest video file
+    if (!targetFile) {
+      const videoFiles = files.filter((f) => isVideoFile(f.name));
+      targetFile = videoFiles.sort((a, b) => {
+        const s1 = a.name.match(/s(\d+)e(\d+)/i);
+        const s2 = b.name.match(/s(\d+)e(\d+)/i);
+        if (s1 && s2) {
+          const sDiff = parseInt(s1[1], 10) - parseInt(s2[1], 10);
+          if (sDiff !== 0) return sDiff;
+          return parseInt(s1[2], 10) - parseInt(s2[2], 10);
+        }
+        return b.size - a.size;
+      })[0];
+    }
 
     if (!targetFile && files.length > 0) {
       targetFile = files[0];
@@ -131,6 +164,9 @@ export async function GET(request: NextRequest) {
     if (!targetFile) {
       return NextResponse.json({ error: 'No video files found in torrent' }, { status: 404 });
     }
+
+    // Prioritize downloading this specific file (season pack optimization!)
+    client.prioritizeFile(torrent.hash, targetFile.index).catch(() => {});
 
     resolvedPath = findTorrentFilePath(
       downloadsPath,

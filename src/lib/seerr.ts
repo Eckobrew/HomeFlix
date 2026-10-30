@@ -535,6 +535,35 @@ export class SeerrClient {
     }
   }
 
+  async getUserRequests(take = 20): Promise<MediaItem[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const res = await fetch(`${this.url}/api/v1/request?take=${take}&sort=added`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 15 },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const results: MediaItem[] = [];
+      for (const req of data.results || []) {
+        if (!req.media?.tmdbId) continue;
+        const isTv = req.type === 'tv';
+        const tmdbId = req.media.tmdbId;
+        const details = isTv
+          ? await this.getTvDetails(tmdbId)
+          : await this.getMovieDetails(tmdbId);
+        if (details) {
+          details.status = req.media.status === 5 ? 'available' : req.media.status === 3 ? 'processing' : 'requested';
+          results.push(details);
+        }
+      }
+      return results;
+    } catch (e) {
+      console.error('Failed to fetch user requests from Seerr:', e);
+      return [];
+    }
+  }
+
   async requestMedia(payload: RequestMediaPayload): Promise<{ success: boolean; message?: string; error?: string }> {
     if (!this.isConfigured()) {
       return { success: false, error: 'Seerr is not configured' };

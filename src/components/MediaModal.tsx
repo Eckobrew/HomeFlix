@@ -293,18 +293,47 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                   <span>Watch In-Progress ({currentItem.downloadProgress || 0}%)</span>
                 </button>
               ) : (
-                <button
-                  onClick={() => onRequest(currentItem)}
-                  disabled={isRequested}
-                  className={`flex items-center space-x-2 font-bold px-6 py-2 rounded transition-colors shadow ${
-                    isRequested
-                      ? 'bg-amber-600/80 text-white cursor-default'
-                      : 'bg-red-600 hover:bg-red-500 text-white'
-                  }`}
-                >
-                  {isRequested ? <Clock size={18} /> : <Download size={18} />}
-                  <span>{isRequested ? 'Requested (Downloading)' : 'Request via Seerr'}</span>
-                </button>
+                <div className="flex items-center space-x-2 sm:space-x-3">
+                  <button
+                    onClick={() => {
+                      const tmdbId = currentItem.tmdbId || (currentItem.id.startsWith('seerr-') ? Number(currentItem.id.replace(/^seerr-(?:movie-|tv-)?/, '')) : undefined);
+                      if (tmdbId) {
+                        fetch('/api/request', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            mediaType: currentItem.type === 'Series' ? 'tv' : 'movie',
+                            mediaId: tmdbId,
+                            seasons: currentItem.type === 'Series' ? [1] : undefined,
+                          }),
+                        }).catch(console.error);
+                      }
+                      onPlay({
+                        ...currentItem,
+                        status: 'processing',
+                        isDownloading: true,
+                        downloadProgress: currentItem.downloadProgress || 0,
+                      });
+                    }}
+                    className="flex items-center space-x-2 bg-red-600 hover:bg-red-500 text-white font-bold px-5 sm:px-6 py-2 rounded transition-transform active:scale-95 shadow"
+                  >
+                    <Play size={18} className="fill-white" />
+                    <span>Download &amp; Stream</span>
+                  </button>
+
+                  <button
+                    onClick={() => onRequest(currentItem)}
+                    disabled={isRequested}
+                    className={`flex items-center space-x-2 font-semibold px-4 py-2 rounded transition-colors border shadow ${
+                      isRequested
+                        ? 'bg-amber-600/30 border-amber-600/50 text-amber-300 cursor-default'
+                        : 'bg-neutral-800/90 hover:bg-neutral-700 text-neutral-300 hover:text-white border-neutral-700'
+                    }`}
+                  >
+                    {isRequested ? <Clock size={16} /> : <Download size={16} />}
+                    <span>{isRequested ? 'Requested' : 'Request Only'}</span>
+                  </button>
+                </div>
               )}
 
               {/* Watch Trailer Button */}
@@ -518,14 +547,34 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                     const epKey = `${currentSeason?.seasonNumber || 1}-${ep.episodeNumber}`;
                     const isEpRequested = requestedEpIds.has(epKey) || isRequested;
                     const isEpRequesting = requestingEpId === epKey;
-                    const canPlayEp = isAvailable && Boolean(ep.videoStreamUrl || ep.jellyfinId);
+                    const isTorrentDownloading = Boolean(currentItem.isDownloading || currentItem.downloadStreamUrl || ep.downloadStreamUrl);
+                    const canPlayEp = (isAvailable && Boolean(ep.videoStreamUrl || ep.jellyfinId)) || isTorrentDownloading;
 
                     return (
                       <div
                         key={ep.id}
                         onClick={() => {
                           if (canPlayEp) {
-                            onPlay(currentItem, ep);
+                            if (isTorrentDownloading) {
+                              const hash = currentItem.torrentHash || (currentItem.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]);
+                              const sNum = currentSeason?.seasonNumber || 1;
+                              const epNum = ep.episodeNumber;
+                              const epStreamUrl = hash
+                                ? `/api/stream/download?hash=${hash}&season=${sNum}&episode=${epNum}`
+                                : currentItem.downloadStreamUrl;
+
+                              onPlay({
+                                ...currentItem,
+                                isDownloading: true,
+                                downloadStreamUrl: epStreamUrl,
+                                videoStreamUrl: epStreamUrl,
+                              }, {
+                                ...ep,
+                                videoStreamUrl: epStreamUrl,
+                              });
+                            } else {
+                              onPlay(currentItem, ep);
+                            }
                           } else {
                             handleRequestEpisode(ep);
                           }
@@ -590,6 +639,12 @@ export const MediaModal: React.FC<MediaModalProps> = ({
                                   {ep.progressPercent}% watched
                                 </span>
                               ) : null}
+                              {isTorrentDownloading && (
+                                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-950/70 text-blue-400 border border-blue-800/80 flex items-center space-x-1">
+                                  <Download size={10} className="animate-bounce" />
+                                  <span>Stream In-Progress</span>
+                                </span>
+                              )}
                               {!canPlayEp && (
                                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                                   isEpRequested

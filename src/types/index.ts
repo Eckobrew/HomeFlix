@@ -26,6 +26,7 @@ export interface Episode {
   played?: boolean;
   jellyfinId?: string;
   videoStreamUrl?: string;
+  downloadStreamUrl?: string;
 }
 
 export interface Season {
@@ -85,8 +86,10 @@ export interface MediaItem {
   downloadProgress?: number; // 0 - 100
   downloadSpeed?: number;
   downloadEta?: number;
+  downloaded?: number;
   torrentHash?: string;
   downloadStreamUrl?: string;
+  mediaFiles?: DownloadingTorrentFile[];
 }
 
 export interface MediaRowSection {
@@ -135,6 +138,7 @@ export interface DownloadingTorrentItem {
   streamable: boolean;
   streamUrl?: string;
   videoFile?: DownloadingTorrentFile;
+  mediaFiles?: DownloadingTorrentFile[];
 }
 
 export interface UserProfile {

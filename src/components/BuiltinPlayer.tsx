@@ -82,37 +82,63 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   const [activeDownloadSpeed, setActiveDownloadSpeed] = useState<number>(
     item.downloadSpeed ?? 0
   );
+  const [downloadedBytes, setDownloadedBytes] = useState<number>(item.downloaded || 0);
+  const [resolvedTorrentHash, setResolvedTorrentHash] = useState<string | null>(
+    torrentHash ||
+    item.torrentHash ||
+    (item.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]) ||
+    (item.videoStreamUrl?.match(/hash=([^&]+)/)?.[1]) ||
+    null
+  );
 
   useEffect(() => {
     if (!isItemDownloading) return;
 
-    const hash =
-      torrentHash ||
-      item.torrentHash ||
-      (item.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]) ||
-      (item.videoStreamUrl?.match(/hash=([^&]+)/)?.[1]);
-
-    if (!hash) return;
-
-    const interval = setInterval(async () => {
+    let isMounted = true;
+    const poll = async () => {
       try {
         const res = await fetch('/api/downloads');
         if (!res.ok) return;
         const data = await res.json();
-        const found = data.items?.find(
-          (t: any) => t.hash.toLowerCase() === hash.toLowerCase()
-        );
-        if (found) {
+        const cleanItemTitle = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        const found = data.items?.find((t: any) => {
+          if (resolvedTorrentHash && t.hash.toLowerCase() === resolvedTorrentHash.toLowerCase()) return true;
+          const cleanName = (t.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return cleanName.includes(cleanItemTitle) || cleanItemTitle.includes(cleanName);
+        });
+
+        if (found && isMounted) {
+          if (!resolvedTorrentHash) {
+            setResolvedTorrentHash(found.hash);
+          }
           setActiveDownloadProgress(found.progressPercent);
           setActiveDownloadSpeed(found.downloadSpeed);
+          if (typeof found.downloaded === 'number') {
+            setDownloadedBytes(found.downloaded);
+          }
+
+          const minBuffer = 15 * 1024 * 1024; // 15MB initial buffer threshold
+          if (found.downloaded >= minBuffer || found.progressPercent >= 99) {
+            const nextStreamUrl = found.streamUrl || `/api/stream/download?hash=${found.hash}`;
+            setStreamUrl(nextStreamUrl);
+            setIsLoadingStream(false);
+          } else {
+            setIsLoadingStream(true);
+          }
         }
       } catch {
         // Ignore background polling errors
       }
-    }, 4000);
+    };
 
-    return () => clearInterval(interval);
-  }, [isItemDownloading, torrentHash, item.torrentHash, item.downloadStreamUrl, item.videoStreamUrl]);
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isItemDownloading, resolvedTorrentHash, item.title]);
   const [hasTriedFallbackTranscode, setHasTriedFallbackTranscode] = useState(false);
   const [playbackDuration, setPlaybackDuration] = useState<number>(0);
 
@@ -1153,10 +1179,23 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     if (nextEpisode) {
       reportProgress(true);
       setActiveEpisode(nextEpisode);
-      setActivePlayableId(nextEpisode.jellyfinId || nextEpisode.id);
       setCurrentTime(0);
       setDuration(nextEpisode.totalDurationTicks ? nextEpisode.totalDurationTicks / 10000000 : 0);
       setPlaybackDuration(0);
+
+      if (isItemDownloading) {
+        const hash = resolvedTorrentHash || item.torrentHash || (item.downloadStreamUrl?.match(/hash=([^&]+)/)?.[1]);
+        if (hash) {
+          const sNum = nextEpisode.seasonNumber || 1;
+          const epNum = nextEpisode.episodeNumber;
+          setStreamUrl(`/api/stream/download?hash=${hash}&season=${sNum}&episode=${epNum}`);
+          setIsLoadingStream(false);
+          resetControlsTimer();
+          return;
+        }
+      }
+
+      setActivePlayableId(nextEpisode.jellyfinId || nextEpisode.id);
       setStreamUrl('');
       setIsLoadingStream(true);
       resetControlsTimer();
@@ -1228,15 +1267,35 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     >
       {/* Loading Indicator */}
       {(isLoadingEpisode || isLoadingStream) && (
-        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40 space-y-3">
-          <div className="w-10 h-10 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-medium text-gray-400">
-            {isLoadingEpisode
-              ? 'Loading series episode...'
-              : isTranscoding
-              ? 'Preparing hardware-accelerated stream...'
-              : 'Loading media stream...'}
-          </span>
+        <div className="absolute inset-0 bg-black flex flex-col items-center justify-center z-40 space-y-4 p-6 text-center">
+          <div className="relative">
+            <div className="w-14 h-14 border-4 border-red-600/30 border-t-red-600 rounded-full animate-spin" />
+            {isItemDownloading && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Download size={18} className="text-red-500 animate-pulse" />
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5 max-w-sm">
+            <span className="text-sm font-bold text-white">
+              {isItemDownloading
+                ? downloadedBytes < 15 * 1024 * 1024
+                  ? `Downloading initial pieces (${(downloadedBytes / 1024 / 1024).toFixed(1)} MB / 15 MB)...`
+                  : `Preparing live stream (${activeDownloadProgress}%)...`
+                : isLoadingEpisode
+                ? 'Loading series episode...'
+                : isTranscoding
+                ? 'Preparing hardware-accelerated stream...'
+                : 'Loading media stream...'}
+            </span>
+            {isItemDownloading && (
+              <p className="text-xs text-neutral-400">
+                {activeDownloadSpeed > 0
+                  ? `Download speed: ${(activeDownloadSpeed / 1024 / 1024).toFixed(1)} MB/s • Playback begins automatically once initial pieces arrive`
+                  : 'Contacting qBittorrent downloader...'}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

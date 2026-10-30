@@ -217,12 +217,48 @@ export async function GET(request: NextRequest) {
       try {
         const topGenres = await jellyfin.getUserTopGenres(targetUserId);
 
-        const [recommended, trending, popularMovies, popularTv] = await Promise.all([
+        const [userRequests, recommended, trending, popularMovies, popularTv] = await Promise.all([
+          seerr.getUserRequests(),
           seerr.getRecommendationsForGenres(topGenres),
           seerr.getTrending(),
           seerr.getPopularMovies(),
           seerr.getPopularTv(),
         ]);
+
+        // Link active qBittorrent downloads to user requests
+        if (userRequests.length > 0 && qb.isConfigured()) {
+          try {
+            const dlList = await qb.getStreamableDownloads();
+            userRequests.forEach((req) => {
+              const matchedDl = dlList.find(
+                (d) =>
+                  d.name.toLowerCase().includes(req.title.toLowerCase()) ||
+                  req.title.toLowerCase().includes(d.name.toLowerCase())
+              );
+              if (matchedDl) {
+                req.isDownloading = true;
+                req.downloadProgress = matchedDl.progressPercent;
+                req.downloadSpeed = matchedDl.downloadSpeed;
+                req.downloadEta = matchedDl.eta;
+                req.torrentHash = matchedDl.hash;
+                req.videoStreamUrl = matchedDl.streamUrl || `/api/stream/download?hash=${matchedDl.hash}`;
+                req.downloadStreamUrl = matchedDl.streamUrl || `/api/stream/download?hash=${matchedDl.hash}`;
+                req.status = 'processing';
+              }
+            });
+          } catch {}
+        }
+
+        if (userRequests.length > 0) {
+          const reqSection: MediaRowSection = {
+            id: 'my-requests',
+            title: '⚡ Your Requested Media (Downloading & In-Progress)',
+            items: userRequests,
+          };
+          // Put at top of home feed (right after currently-downloading) and requests tab
+          sections.splice(sections.findIndex((s) => s.id === 'currently-downloading') + 1, 0, reqSection);
+          requestSections.unshift(reqSection);
+        }
 
         if (trending.length > 0) {
           sections.push({
