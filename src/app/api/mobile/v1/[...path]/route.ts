@@ -22,8 +22,8 @@ type Context = { params: { path: string[] } };
 
 function authorize(request: NextRequest, isImageRoute: boolean = false): NextResponse | undefined {
   const expected = process.env.HOMESTREAM_MOBILE_TOKEN || '';
-  if (expected.length < 32) {
-    return NextResponse.json({ error: 'Mobile API disabled. Set HOMESTREAM_MOBILE_TOKEN to at least 32 characters.' }, { status: 503 });
+  if (expected.length < 6) {
+    return NextResponse.json({ error: 'Mobile API disabled. Set HOMESTREAM_MOBILE_TOKEN to at least 6 characters.' }, { status: 503 });
   }
   const authorization = request.headers.get('authorization') || '';
   let provided = /^Bearer /i.test(authorization) ? authorization.slice(7) : '';
