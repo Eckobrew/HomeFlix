@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   const itemId = searchParams.get('itemId');
   const canPlayHevc = searchParams.get('canPlayHevc') === 'true';
   const forceTranscode = searchParams.get('forceTranscode') === 'true';
+  const audioCodecs = searchParams.get('audioCodecs') || undefined;
   const startTimeTicks = searchParams.get('startTimeTicks')
     ? Number(searchParams.get('startTimeTicks'))
     : undefined;
@@ -32,6 +33,7 @@ export async function GET(request: NextRequest) {
       canPlayHevc,
       forceTranscode,
       startTimeTicks,
+      audioCodecs,
     });
     return NextResponse.json(result);
   } catch (error) {

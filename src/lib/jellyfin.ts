@@ -354,6 +354,7 @@ export class JellyfinClient {
       canPlayHevc?: boolean;
       forceTranscode?: boolean;
       startTimeTicks?: number;
+      audioCodecs?: string;
     }
   ): Promise<{
     streamUrl: string;
@@ -404,16 +405,21 @@ export class JellyfinClient {
         ? 'h264,hevc,h265,vp8,vp9,av1'
         : 'h264';
 
+      const safeAudioCodecs = options?.audioCodecs?.trim()
+        ? options.audioCodecs.trim()
+        : 'aac,mp3,opus,flac,vorbis';
+
       const supportedContainers = ['mkv', 'mp4', 'm4v', 'mov', 'webm', 'ts', 'avi'];
       const directPlayProfiles = directVideoCodecs
         ? supportedContainers.map((container) => ({
             Container: container,
             Type: 'Video',
             VideoCodec: directVideoCodecs,
-            AudioCodec: 'aac,mp3,ac3,eac3,opus,flac,vorbis,pcm,dca,dts',
+            AudioCodec: safeAudioCodecs,
           }))
         : [];
 
+      const transcodeVideoCodecs = canDirectHevc ? 'hevc,h264' : 'h264';
       const profilePayload = {
         StartTimeTicks: options?.startTimeTicks,
         DeviceProfile: {
@@ -423,7 +429,7 @@ export class JellyfinClient {
             {
               Container: 'ts',
               Type: 'Video',
-              VideoCodec: 'h264',
+              VideoCodec: transcodeVideoCodecs,
               AudioCodec: 'aac',
               Protocol: 'hls',
               Context: 'Streaming',
@@ -431,7 +437,7 @@ export class JellyfinClient {
             {
               Container: 'mp4',
               Type: 'Video',
-              VideoCodec: 'h264',
+              VideoCodec: transcodeVideoCodecs,
               AudioCodec: 'aac',
               Protocol: 'http',
               Context: 'Streaming',
