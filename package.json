@@ -10,7 +10,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:mobile": "node scripts/test-mobile-api.mjs"
   },
   "dependencies": {
     "hls.js": "^1.7.4",

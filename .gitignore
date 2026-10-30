@@ -36,11 +36,5 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Android
-android/.gradle/
-android/**/build/
-android/local.properties
-android/.idea/
-*.jks
-*.keystore
+# Runtime server configuration
 /data/

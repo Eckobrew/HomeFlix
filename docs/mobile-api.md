@@ -41,3 +41,13 @@ cannot use the app's pairing header or phone-only VPN connection. The default
 Google Cast media receiver is used, so no custom receiver registration is needed.
 Cast requests force compatible HLS transcoding. Test with your actual codecs and
 Jellyfin transcoding configuration before rollout.
+
+## Local validation
+
+`npm run test:mobile` starts an isolated development server with temporary data
+and test credentials, verifies disabled/invalid auth, demo feed and details,
+profiles/libraries, playback/progress input validation and unavailable routes,
+and shuts the server down. No real Jellyfin or Seerr server is required.
+`npm run build` type-checks and builds the complete existing frontend.
+The repository's general `npm run lint` currently reports pre-existing errors
+outside this API; the new route is separately linted in the Mobile API workflow.

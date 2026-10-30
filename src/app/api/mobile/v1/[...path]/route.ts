@@ -19,7 +19,8 @@ function authorize(request: NextRequest): NextResponse | undefined {
   if (expected.length < 32) {
     return NextResponse.json({ error: 'Mobile API disabled. Set HOMESTREAM_MOBILE_TOKEN to at least 32 characters.' }, { status: 503 });
   }
-  const provided = request.headers.get('authorization')?.replace(/^Bearer /i, '') || '';
+  const authorization = request.headers.get('authorization') || '';
+  const provided = /^Bearer /i.test(authorization) ? authorization.slice(7) : '';
   const a = Buffer.from(expected);
   const b = Buffer.from(provided);
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
@@ -56,7 +57,13 @@ async function dispatch(request: NextRequest, { params }: Context) {
   }
   if (get && route === 'subtitles') return subtitles(request);
   if (!get && route === 'progress') {
-    const body = await request.clone().json();
+    let body;
+    try { body = await request.clone().json(); } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+    }
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'JSON object required' }, { status: 400 });
+    }
     if (typeof body.itemId !== 'string' || !body.itemId ||
         !Number.isSafeInteger(body.positionTicks) || body.positionTicks < 0) {
       return NextResponse.json({ error: 'Valid itemId and nonnegative positionTicks required' }, { status: 400 });

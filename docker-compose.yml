@@ -11,6 +11,8 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      # Optional native Android / Android TV API (disabled when empty)
+      - HOMESTREAM_MOBILE_TOKEN=${HOMESTREAM_MOBILE_TOKEN:-}
       # Jellyfin Integration
       - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin.local:8096}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
