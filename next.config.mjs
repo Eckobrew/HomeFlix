@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  experimental: { cpus: 1 },
+  distDir: process.env.HOMESTREAM_DIST_DIR || '.next',
   images: {
     unoptimized: true,
     remotePatterns: [

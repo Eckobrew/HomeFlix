@@ -1,11 +1,13 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { getServerConfig } from '@/lib/config';
+import { requestJellyfinSession } from '@/lib/jellyfin-session';
 import { resolveJellyfinUserId } from '@/lib/profiles';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const itemId = searchParams.get('itemId');
   const ticksParam = searchParams.get('ticks');
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const config = getServerConfig();
   const jellyfinUrl = (config.jellyfinUrl || '').replace(/\/+$/, '');
-  const apiKey = config.jellyfinApiKey;
+  const apiKey = requestJellyfinSession()?.accessToken || config.jellyfinApiKey;
 
   try {
     const uid = targetUserId || (await jellyfin.getFirstUserId());
@@ -105,3 +107,5 @@ export async function GET(request: NextRequest) {
   const fallbackUrl = `${jellyfinUrl}/Videos/${itemId}/stream.mp4?api_key=${apiKey}&Static=true`;
   return NextResponse.redirect(fallbackUrl, 302);
 }
+
+export const GET = withJellyfinSession(handleGET);

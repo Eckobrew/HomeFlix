@@ -23,27 +23,29 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [activeFilter, setActiveFilter] = useState<'all' | 'available' | 'movies' | 'tv'>('all');
 
   useEffect(() => {
+    const controller = new AbortController();
     if (!query.trim()) {
       setResults([]);
+      setIsLoading(false);
       return;
     }
 
     const timer = setTimeout(async () => {
       try {
         setIsLoading(true);
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        if (res.ok) {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (res.ok && !controller.signal.aborted) {
           const data = await res.json();
           setResults(data.results || []);
         }
       } catch (err) {
-        console.error('Search request failed:', err);
+        if (!controller.signal.aborted) console.error('Search request failed:', err);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => { controller.abort(); clearTimeout(timer); };
   }, [query]);
 
   // Poll /api/downloads to keep torrent download progress & stream links live in search results
@@ -62,7 +64,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             const cleanTitle = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
             const matched = dlList.find((dl: any) => {
               const cleanDl = (dl.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-              return cleanDl.includes(cleanTitle) || cleanTitle.includes(cleanDl);
+              return cleanTitle.length > 0 && cleanDl.length > 0 && (cleanDl.includes(cleanTitle) || cleanTitle.includes(cleanDl));
             });
             if (matched) {
               return {

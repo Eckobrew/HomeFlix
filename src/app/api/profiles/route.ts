@@ -1,3 +1,4 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getHomeflixProfiles,
@@ -8,11 +9,12 @@ import {
 } from '@/lib/profiles';
 import { getServerConfig } from '@/lib/config';
 import { isRequestLocalOrTailscale } from '@/lib/network';
+import { readSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const profiles = await getHomeflixProfiles();
     const config = getServerConfig();
@@ -21,12 +23,7 @@ export async function GET(request: NextRequest) {
 
     const netCheck = isRequestLocalOrTailscale(request);
     const sessionCookie = request.cookies.get('homeflix_session')?.value;
-    let sessionUser: { id: string; name: string } | null = null;
-    if (sessionCookie) {
-      try {
-        sessionUser = JSON.parse(Buffer.from(sessionCookie, 'base64').toString('utf-8'));
-      } catch {}
-    }
+    const sessionUser = await readSession(sessionCookie, 'web');
 
     // External login: lock directly to the authenticated Jellyfin user with no switching
     if (!netCheck.isLocalOrTailscale) {
@@ -36,7 +33,7 @@ export async function GET(request: NextRequest) {
 
       if (!externalProfile && sessionUser?.id) {
         const imported = await importProfilesFromJellyfin([sessionUser.id]);
-        externalProfile = imported.find((p) => p.id === sessionUser?.id);
+        externalProfile = imported.find((p) => p.id === sessionUser?.id) || { id: sessionUser.id, name: sessionUser.name, jellyfinUserId: sessionUser.id, avatarColor: 'from-red-600 to-red-800', avatarBg: 'bg-red-600', initials: sessionUser.name.slice(0, 2).toUpperCase() };
       }
 
       const activeList = externalProfile ? [externalProfile] : [];
@@ -108,7 +105,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const netCheck = isRequestLocalOrTailscale(request);
     if (!netCheck.isLocalOrTailscale) {
@@ -252,3 +249,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to process profile action' }, { status: 500 });
   }
 }
+
+export const GET = withJellyfinSession(handleGET);
+
+export const POST = withJellyfinSession(handlePOST);

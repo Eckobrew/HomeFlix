@@ -13,6 +13,7 @@ export interface SubtitleTrack {
 }
 
 export interface Episode {
+  locationType?: string;
   id: string;
   episodeNumber: number;
   seasonNumber: number;
@@ -73,6 +74,8 @@ export interface MediaItem {
   cast?: CastMember[];
   director?: string;
   seriesId?: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
   seriesName?: string;
   seasons?: Season[];
   videoStreamUrl?: string;

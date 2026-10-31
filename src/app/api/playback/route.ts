@@ -1,10 +1,11 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { resolveJellyfinUserId } from '@/lib/profiles';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const itemId = searchParams.get('itemId');
   const canPlayHevc = searchParams.get('canPlayHevc') === 'true';
@@ -30,9 +31,15 @@ export async function GET(request: NextRequest) {
   try {
     const result = await jellyfin.getPlaybackStream(itemId, {
       canPlayHevc,
+      receiver: searchParams.get('receiver') === 'cast' ? 'cast' : searchParams.get('receiver') === 'browser' ? 'browser' : undefined,
+      videoCodecs: (searchParams.get('videoCodecs') || '').split(',').filter(codec => ['h264', 'hevc', 'vp8', 'vp9', 'av1'].includes(codec)),
+      maxWidth: searchParams.get('maxWidth') === '3840' ? 3840 : 1920,
+      maxHeight: searchParams.get('maxHeight') === '2160' ? 2160 : 1080,
+      audioCodecs: (searchParams.get('audioCodecs') || 'aac,mp3').split(',').filter(codec => ['aac', 'mp3', 'opus', 'flac', 'vorbis', 'ac3', 'eac3', 'dts'].includes(codec)),
       forceTranscode,
       startTimeTicks,
     });
+    if (!result.streamUrl) return NextResponse.json({ error: result.error || 'Media file is not available' }, { status: 404 });
     return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to get playback stream:', error);
@@ -42,3 +49,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+export const GET = withJellyfinSession(handleGET);

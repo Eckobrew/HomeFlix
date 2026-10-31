@@ -228,3 +228,9 @@ See [the mobile API contract](docs/mobile-api.md) for endpoints, household acces
 semantics, and Chromecast/Jellyfin network requirements. Run `npm run test:mobile`
 for isolated API integration checks. No Android source or Android build tools
 are required to run this server.
+
+## Audit and client integration update
+
+See [audit fixes and migration notes](docs/audit-fixes.md) before deploying the
+Android 1.1.0 integration and updated authentication. This includes signed
+sessions, explicit proxy trust, episode queues and watched-state APIs.

@@ -13,6 +13,10 @@ services:
       - PORT=3000
       # Optional native Android / Android TV API (disabled when empty)
       - HOMESTREAM_MOBILE_TOKEN=${HOMESTREAM_MOBILE_TOKEN:-}
+      - HOMESTREAM_SESSION_SECRET=${HOMESTREAM_SESSION_SECRET:-}
+      - HOMESTREAM_SETUP_TOKEN=${HOMESTREAM_SETUP_TOKEN:-}
+      - HOMESTREAM_WEBHOOK_TOKEN=${HOMESTREAM_WEBHOOK_TOKEN:-}
+      - HOMESTREAM_TRUST_PROXY=${HOMESTREAM_TRUST_PROXY:-false}
       # Jellyfin Integration
       - JELLYFIN_URL=${JELLYFIN_URL:-http://jellyfin.local:8096}
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:-}
@@ -31,7 +35,7 @@ services:
       - ./data:/app/data
       - /mnt/downloads:/downloads
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/api/config"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/mobile/v1/discovery"]
       interval: 30s
       timeout: 5s
       retries: 3

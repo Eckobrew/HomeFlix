@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Hls from 'hls.js';
+import { browserPlaybackParameters } from '@/lib/playback-capabilities';
 import {
   ArrowLeft,
   Play,
@@ -46,10 +47,17 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   torrentHash,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const castLoadRef = useRef<(compatible?: boolean) => Promise<void>>(async () => {});
+  const castCompatibilityRef = useRef(false);
+  const castLoadGeneration = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(true);
+  const [autoplayEpisodes, setAutoplayEpisodes] = useState(true);
+  const nextEpisodeHandler = useRef<() => void>(() => {});
+  const castFinishedItem = useRef('');
+  useEffect(() => { setAutoplayEpisodes(localStorage.getItem('homestream-autoplay') !== 'false'); }, []);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -234,7 +242,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     if (item.type === 'Series') {
       if (item.seasons && item.seasons.length > 0) {
         const allEps = item.seasons.flatMap((s) => s.episodes || []);
-        setSeriesEpisodes(allEps);
+        setSeriesEpisodes(allEps.filter(ep => ep.jellyfinId || ep.videoStreamUrl).sort((a, b) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber));
         if (!activeEpisode) {
           const found = activePlayableId
             ? allEps.find((ep) => ep.jellyfinId === activePlayableId || ep.id === activePlayableId)
@@ -259,7 +267,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           }
           if (media.seasons) {
             const allEps = media.seasons.flatMap((s: any) => s.episodes || []);
-            setSeriesEpisodes(allEps);
+            setSeriesEpisodes(allEps.filter((ep: Episode) => ep.jellyfinId || ep.videoStreamUrl).sort((a: Episode, b: Episode) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber));
             if (!activeEpisode) {
               const found = targetPlayableId
                 ? allEps.find((ep: any) => ep.jellyfinId === targetPlayableId || ep.id === targetPlayableId)
@@ -364,7 +372,9 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
   );
 
   // Load media stream with metadata and subtitles onto connected Chromecast receiver
-  const loadCastMedia = useCallback(() => {
+  const loadCastMedia = useCallback(async (compatible = false) => {
+    const generation = ++castLoadGeneration.current;
+    castCompatibilityRef.current = compatible;
     try {
       if (typeof window === 'undefined' || !(window as any).cast?.framework) return;
       const castContext = (window as any).cast.framework.CastContext.getInstance();
@@ -374,15 +384,25 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       const deviceName = session.getCastDevice()?.friendlyName;
       if (deviceName) setCastDeviceName(deviceName);
 
-      const rawUrl = streamUrlRef.current || videoRef.current?.currentSrc || videoRef.current?.src;
+      const localUrl = streamUrlRef.current || videoRef.current?.currentSrc || videoRef.current?.src;
+      let rawUrl = localUrl;
+      const targetId = activePlayableId || activeEpisode?.jellyfinId || item.playableEpisodeId || item.jellyfinId || item.id;
+      if (!isItemDownloading && targetId) {
+        const params = new URLSearchParams({ itemId: targetId, receiver: 'cast', videoCodecs: compatible ? 'h264' : 'h264,hevc,vp8,vp9,av1', audioCodecs: 'aac,mp3,opus,vorbis', maxWidth: compatible ? '1920' : '3840', maxHeight: compatible ? '1080' : '2160', forceTranscode: String(compatible) });
+        const response = await fetch(`/api/playback?${params}`);
+        if (!response.ok) throw new Error('Cast stream negotiation failed');
+        const result = await response.json();
+        rawUrl = result.streamUrl;
+      }
+      if (generation !== castLoadGeneration.current) return;
       if (!rawUrl) return;
 
       const absoluteMediaUrl = new URL(rawUrl, window.location.href).href;
       lastCastedUrlRef.current = absoluteMediaUrl;
-      lastCastedKeyRef.current = (activeEpisode ? `${item.id}-${activeEpisode.id}` : item.id) + '-' + rawUrl;
+      lastCastedKeyRef.current = (activeEpisode ? `${item.id}-${activeEpisode.id}` : item.id) + '-' + localUrl;
 
       const isHls = absoluteMediaUrl.includes('.m3u8');
-      const contentType = isHls ? 'application/x-mpegURL' : 'video/mp4';
+      const contentType = isHls ? 'application/x-mpegURL' : new URL(absoluteMediaUrl).pathname.endsWith('.webm') ? 'video/webm' : 'video/mp4';
 
       const mediaInfo = new (window as any).chrome.cast.media.MediaInfo(absoluteMediaUrl, contentType);
       mediaInfo.metadata = new (window as any).chrome.cast.media.GenericMediaMetadata();
@@ -417,6 +437,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
       session.loadMedia(request).then(
         () => {
+          if (generation !== castLoadGeneration.current) return;
           setIsCasting(true);
           setIsCastConnecting(false);
           if (videoRef.current && !videoRef.current.paused) {
@@ -424,15 +445,22 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           }
         },
         (err: any) => {
+          if (generation !== castLoadGeneration.current) return;
+          if (!compatible) { void castLoadRef.current(true); return; }
           console.error('Error loading media to Chromecast:', err);
           setIsCastConnecting(false);
+          setStreamError(true);
         }
       );
     } catch (e) {
+      if (generation !== castLoadGeneration.current) return;
+      if (!compatible) { void castLoadRef.current(true); return; }
       console.error('Cast media load exception:', e);
       setIsCastConnecting(false);
+      setStreamError(true);
     }
-  }, [currentTitle, item, activeEpisode, subtitles]);
+  }, [currentTitle, item, activeEpisode, subtitles, activePlayableId, isItemDownloading]);
+  castLoadRef.current = loadCastMedia;
 
   // Disconnect from Chromecast session
   const handleDisconnectCast = useCallback(() => {
@@ -535,6 +563,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
   // Initialize Google Cast SDK & HTMLMediaElement Remote Playback
   useEffect(() => {
+    let disposed = false;
+    const cleanup: Array<() => void> = [];
     // 1. Check Native Remote Playback API
     const video = videoRef.current;
     if (video && 'remote' in video && (video as any).remote) {
@@ -556,13 +586,19 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       remote.addEventListener('connecting', handleConnecting);
       remote.addEventListener('connect', handleConnect);
       remote.addEventListener('disconnect', handleDisconnect);
+      cleanup.push(() => { remote.removeEventListener('connecting', handleConnecting); remote.removeEventListener('connect', handleConnect); remote.removeEventListener('disconnect', handleDisconnect); });
 
       if (remote.watchAvailability) {
         remote
           .watchAvailability((available: boolean) => {
             if (available) setIsCastAvailable(true);
           })
+          .then((id: number) => {
+            const cancel = () => { void remote.cancelWatchAvailability(id); };
+            if (disposed) cancel(); else cleanup.push(cancel);
+          })
           .catch(() => {
+            if (disposed) return;
             setIsCastAvailable(true);
           });
       } else {
@@ -572,9 +608,14 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
 
     // 2. Initialize Google Cast Framework
     const initCastFramework = () => {
+      if (disposed) return;
       try {
         if (typeof window === 'undefined' || !(window as any).cast?.framework) return;
         const castContext = (window as any).cast.framework.CastContext.getInstance();
+        const listen = (type: string, listener: (event: any) => void) => {
+          castContext.addEventListener(type, listener);
+          cleanup.push(() => castContext.removeEventListener(type, listener));
+        };
         castContext.setOptions({
           receiverApplicationId: (window as any).chrome?.cast?.media?.DEFAULT_MEDIA_RECEIVER_APP_ID || 'CC1AD845',
           autoJoinPolicy: (window as any).chrome?.cast?.AutoJoinPolicy?.ORIGIN_SCOPED,
@@ -591,7 +632,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           if (dev) setCastDeviceName(dev);
         }
 
-        castContext.addEventListener(
+        listen(
           (window as any).cast.framework.CastContextEventType.CAST_STATE_CHANGED,
           (event: any) => {
             if (event.castState === CastState.CONNECTED) {
@@ -609,7 +650,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           }
         );
 
-        castContext.addEventListener(
+        listen(
           (window as any).cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
           (event: any) => {
             const SessionState = (window as any).cast.framework.SessionState;
@@ -642,12 +683,15 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
         initCastFramework();
       } else {
         const prevOnGCast = (window as any).__onGCastApiAvailable;
-        (window as any).__onGCastApiAvailable = (isAvailable: boolean) => {
+        const available = (isAvailable: boolean) => {
           if (prevOnGCast) prevOnGCast(isAvailable);
           if (isAvailable) initCastFramework();
         };
+        (window as any).__onGCastApiAvailable = available;
+        cleanup.push(() => { if ((window as any).__onGCastApiAvailable === available) (window as any).__onGCastApiAvailable = prevOnGCast; });
       }
     }
+    return () => { disposed = true; cleanup.forEach(stop => stop()); };
   }, [loadCastMedia]);
 
   // Google Cast receiver position polling & playback state sync
@@ -665,6 +709,17 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
                 setCurrentTime(estimatedTime);
               }
               const playerState = media.playerState;
+              if (playerState === 'IDLE' && media.idleReason === 'ERROR' && !castCompatibilityRef.current) {
+                castCompatibilityRef.current = true;
+                void castLoadRef.current(true);
+              }
+              if (playerState === 'IDLE' && media.idleReason === 'FINISHED') {
+                const key = String(media.mediaSessionId);
+                if (castFinishedItem.current !== key) {
+                  castFinishedItem.current = key;
+                  if (autoplayEpisodes) nextEpisodeHandler.current();
+                }
+              }
               if (playerState === 'PLAYING') {
                 setIsPlaying(true);
               } else if (playerState === 'PAUSED') {
@@ -678,7 +733,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isCasting, isScrubbing]);
+  }, [isCasting, isScrubbing, autoplayEpisodes]);
 
   // Auto-reload on Chromecast ONLY when media/episode actually changes while casting
   useEffect(() => {
@@ -750,7 +805,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     );
 
     let isMounted = true;
-    fetch(`/api/playback?itemId=${targetId}&canPlayHevc=${canPlayHevc}`)
+    fetch(`/api/playback?itemId=${targetId}&canPlayHevc=${canPlayHevc}&${browserPlaybackParameters(mime => videoRef.current?.canPlayType(mime) || '')}`)
       .then((res) => res.json())
       .then((data) => {
         if (!isMounted) return;
@@ -1232,6 +1287,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
     if (nextEpisode) {
       reportProgress(true);
       setActiveEpisode(nextEpisode);
+      setIsPlaying(true);
       setCurrentTime(0);
       setDuration(nextEpisode.totalDurationTicks ? nextEpisode.totalDurationTicks / 10000000 : 0);
       setPlaybackDuration(0);
@@ -1254,6 +1310,8 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
       resetControlsTimer();
     }
   };
+
+  nextEpisodeHandler.current = handleNextEpisode;
 
   // Periodic progress reporting every 10 seconds while playing
   useEffect(() => {
@@ -1395,6 +1453,7 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
           onCanPlay={() => setIsMidStreamBuffering(false)}
           onLoadedMetadata={handleLoadedMetadata}
           onError={handlePlaybackError}
+          onEnded={() => { reportProgress(true); if (autoplayEpisodes) handleNextEpisode(); }}
           className={isCasting ? 'hidden' : 'w-full h-full object-contain cursor-pointer'}
           playsInline
         >
@@ -1567,6 +1626,10 @@ export const BuiltinPlayer: React.FC<BuiltinPlayerProps> = ({
               </div>
             </div>
 
+            {seriesEpisodes.length > 0 && <label className="flex items-center justify-center gap-2 text-sm text-neutral-300">
+              <input type="checkbox" checked={autoplayEpisodes} onChange={event => { setAutoplayEpisodes(event.target.checked); localStorage.setItem('homestream-autoplay', String(event.target.checked)); }} />
+              Play next episode automatically
+            </label>}
             {/* Primary Remote Touch Buttons */}
             <div className="flex items-center justify-center space-x-5 sm:space-x-7">
               <button

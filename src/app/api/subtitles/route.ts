@@ -1,9 +1,10 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const itemId = searchParams.get('itemId');
   const mediaSourceId = searchParams.get('mediaSourceId') || itemId || '';
@@ -56,3 +57,5 @@ export async function GET(request: NextRequest) {
   const subtitles = await jellyfin.getSubtitles(itemId);
   return NextResponse.json({ subtitles });
 }
+
+export const GET = withJellyfinSession(handleGET);

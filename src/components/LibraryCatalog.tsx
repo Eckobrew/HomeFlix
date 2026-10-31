@@ -36,6 +36,8 @@ export const LibraryCatalog: React.FC<LibraryCatalogProps> = ({
   const [availableLetters, setAvailableLetters] = useState<string[]>([]);
   const [selectedLetter, setSelectedLetter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState('title');
+  const [watchFilter, setWatchFilter] = useState('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,8 +97,9 @@ export const LibraryCatalog: React.FC<LibraryCatalogProps> = ({
       );
     }
 
-    return result;
-  }, [items, selectedLetter, searchQuery]);
+    result = result.filter(item => watchFilter === 'all' || (watchFilter === 'watched' ? item.played : watchFilter === 'unwatched' ? !item.played : !item.played && (item.playbackPositionTicks || 0) > 0));
+    return [...result].sort((a, b) => sortOrder === 'year' ? (b.year || 0) - (a.year || 0) || a.title.localeCompare(b.title) : sortOrder === 'reverse' ? b.title.localeCompare(a.title) : a.title.localeCompare(b.title));
+  }, [items, selectedLetter, searchQuery, sortOrder, watchFilter]);
 
   const libraryMeta = {
     movies: {
@@ -182,6 +185,14 @@ export const LibraryCatalog: React.FC<LibraryCatalogProps> = ({
         </div>
       </div>
 
+      <div className="flex gap-3 py-4 flex-wrap">
+        <select aria-label="Sort library" value={sortOrder} onChange={event => setSortOrder(event.target.value)} className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm">
+          <option value="title">Title A–Z</option><option value="reverse">Title Z–A</option><option value="year">Newest year</option>
+        </select>
+        <select aria-label="Filter watched status" value={watchFilter} onChange={event => setWatchFilter(event.target.value)} className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm">
+          <option value="all">All titles</option><option value="unwatched">Unwatched</option><option value="watched">Watched</option><option value="progress">In progress</option>
+        </select>
+      </div>
       {/* Sticky Alphabetical Jump Filter Bar */}
       <div className="sticky top-16 z-30 bg-[#141414]/95 backdrop-blur-md py-3 border-b border-neutral-800/80 my-4 -mx-4 px-4 sm:-mx-8 sm:px-8 md:-mx-12 md:px-12">
         <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-1">
@@ -246,6 +257,7 @@ export const LibraryCatalog: React.FC<LibraryCatalogProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
             {displayedItems.map((item) => (
               <div key={item.id} className="relative group">
+                {item.played && <span className="absolute top-2 right-2 z-20 rounded bg-black/80 px-2 py-1 text-xs text-white">✓ Watched</span>}
                 <MediaCard
                   item={item}
                   onPlay={onPlay}

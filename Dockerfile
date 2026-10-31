@@ -20,6 +20,7 @@ COPY . .
 # Environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=512"
 
 RUN npm_config_cache=/tmp/.npm-cache npm run build
 
@@ -56,6 +57,6 @@ USER nextjs
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/config || exit 1
+  CMD wget -q -O /dev/null http://127.0.0.1:3000/api/mobile/v1/discovery || exit 1
 
 CMD ["node", "server.js"]

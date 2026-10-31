@@ -2,10 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { Readable } from 'stream';
 import { QBittorrentClient, isVideoFile } from '@/lib/qbittorrent';
 import { getServerConfig } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
+
+function confinedFile(root: string, candidate: string): string | null {
+  try {
+    const realRoot = fs.realpathSync(root);
+    const realFile = fs.realpathSync(candidate);
+    const relative = path.relative(realRoot, realFile);
+    if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.statSync(realFile).isFile()) return null;
+    return realFile;
+  } catch { return null; }
+}
 
 function findTorrentFilePath(
   downloadsPath: string,
@@ -34,9 +45,8 @@ function findTorrentFilePath(
 
   for (const p of candidates) {
     try {
-      if (fs.existsSync(p) && fs.statSync(p).isFile()) {
-        return p;
-      }
+      const file = confinedFile(downloadsPath, p);
+      if (file) return file;
     } catch {
       // Ignore permission or traversal errors during candidate check
     }
@@ -49,9 +59,8 @@ function findTorrentFilePath(
       for (const ent of topDirs) {
         if (ent.isDirectory()) {
           const directCheck = path.join(downloadsPath, ent.name, path.basename(fileName));
-          if (fs.existsSync(directCheck) && fs.statSync(directCheck).isFile()) {
-            return directCheck;
-          }
+          const file = confinedFile(downloadsPath, directCheck);
+          if (file) return file;
         }
       }
     }
@@ -73,6 +82,11 @@ export async function GET(request: NextRequest) {
   const startSec = parseFloat(searchParams.get('start') || '0');
   const forceTranscode = searchParams.get('transcode') === '1';
 
+  if (!Number.isFinite(startSec) || startSec < 0 ||
+      (fileIndexParam !== null && (!/^\d+$/.test(fileIndexParam) || !Number.isSafeInteger(fileIndex))) ||
+      [seasonParam, episodeParam].some(value => value !== null && (!/^\d+$/.test(value) || Number(value) < 1 || !Number.isSafeInteger(Number(value))))) {
+    return NextResponse.json({ error: 'Invalid stream parameters' }, { status: 400 });
+  }
   const config = getServerConfig();
   const downloadsPath = config.downloadsPath || '/downloads';
 
@@ -84,16 +98,11 @@ export async function GET(request: NextRequest) {
   // 1. Synthetic testing or direct path streaming
   if (rawPath) {
     const candidate = path.resolve(downloadsPath, rawPath);
-    // Security check: ensure path does not escape downloads volume
-    if (!candidate.startsWith(path.resolve(downloadsPath))) {
-      return NextResponse.json({ error: 'Invalid file path' }, { status: 403 });
-    }
-    if (!fs.existsSync(candidate)) {
-      return NextResponse.json({ error: 'Synthetic media file not found' }, { status: 404 });
-    }
-    resolvedPath = candidate;
+    const safePath = confinedFile(downloadsPath, candidate);
+    if (!safePath) return NextResponse.json({ error: 'Invalid or unavailable file path' }, { status: 403 });
+    resolvedPath = safePath;
     isActivelyDownloading = searchParams.get('growing') === '1';
-    targetFileSize = fs.statSync(candidate).size;
+    targetFileSize = fs.statSync(safePath).size;
     targetFileProgress = isActivelyDownloading ? 0.5 : 1.0;
   } else {
     // 2. Standard torrent hash streaming
@@ -140,6 +149,10 @@ export async function GET(request: NextRequest) {
           break;
         }
       }
+    }
+
+    if (!targetFile && (seasonParam || episodeParam || fileIndexParam !== null)) {
+      return NextResponse.json({ error: 'Requested video file not found in torrent' }, { status: 404 });
     }
 
     // Default: earliest episode if TV season pack, otherwise largest video file
@@ -214,7 +227,11 @@ export async function GET(request: NextRequest) {
       ]);
       let out = '';
       probeProc.stdout.on('data', (d) => { out += d.toString(); });
-      await new Promise((resolve) => probeProc.on('close', resolve));
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => { probeProc.kill('SIGKILL'); reject(new Error('Probe timed out')); }, 10000);
+        probeProc.once('error', error => { clearTimeout(timeout); reject(error); });
+        probeProc.once('close', () => { clearTimeout(timeout); resolve(); });
+      });
       const dur = parseFloat(out.trim());
       if (dur > 0) {
         return NextResponse.json({ durationSeconds: dur });
@@ -247,51 +264,32 @@ export async function GET(request: NextRequest) {
     const range = request.headers.get('range');
     const fileSize = stat.size;
 
+    let start = 0;
+    let end = fileSize - 1;
     if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = end - start + 1;
-
-      const fileStream = fs.createReadStream(resolvedPath, { start, end });
-      const stream = new ReadableStream({
-        start(controller) {
-          fileStream.on('data', (chunk) => controller.enqueue(chunk));
-          fileStream.on('end', () => controller.close());
-          fileStream.on('error', (err) => controller.error(err));
-        },
-        cancel() {
-          fileStream.destroy();
-        },
-      });
-
-      return new NextResponse(stream, {
-        status: 206,
-        headers: {
-          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-          'Accept-Ranges': 'bytes',
-          'Content-Length': chunksize.toString(),
-          'Content-Type': ext === '.webm' ? 'video/webm' : 'video/mp4',
-        },
-      });
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!match || (!match[1] && !match[2])) return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      if (!match[1]) start = Math.max(0, fileSize - Number(match[2]));
+      else {
+        start = Number(match[1]);
+        if (match[2]) end = Math.min(Number(match[2]), fileSize - 1);
+      }
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= fileSize) {
+        return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      }
     }
-
-    const fileStream = fs.createReadStream(resolvedPath);
-    const stream = new ReadableStream({
-      start(controller) {
-        fileStream.on('data', (chunk) => controller.enqueue(chunk));
-        fileStream.on('end', () => controller.close());
-        fileStream.on('error', (err) => controller.error(err));
-      },
-      cancel() {
-        fileStream.destroy();
-      },
-    });
-
-    return new NextResponse(stream, {
+    const fileStream = fs.createReadStream(resolvedPath, fileSize ? { start, end } : {});
+    const abort = () => { fileStream.destroy(); };
+    request.signal.addEventListener('abort', abort, { once: true });
+    fileStream.once('close', () => request.signal.removeEventListener('abort', abort));
+    return new NextResponse(Readable.toWeb(fileStream) as ReadableStream, {
+      status: range ? 206 : 200,
       headers: {
-        'Content-Length': fileSize.toString(),
+        ...(range ? { 'Content-Range': `bytes ${start}-${end}/${fileSize}` } : {}),
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(fileSize ? end - start + 1 : 0),
         'Content-Type': ext === '.webm' ? 'video/webm' : 'video/mp4',
+        'Cache-Control': 'no-store',
       },
     });
   }
@@ -307,7 +305,8 @@ export async function GET(request: NextRequest) {
   ffmpegArgs.push('-i', resolvedPath);
 
   // Video strategy: copy video stream directly (fastest, lossless, zero CPU)
-  ffmpegArgs.push('-c:v', 'copy');
+  if (forceTranscode) ffmpegArgs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p');
+  else ffmpegArgs.push('-c:v', 'copy');
 
   // Audio strategy: transcode audio to standard stereo AAC for universal browser playback
   ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
@@ -325,6 +324,7 @@ export async function GET(request: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
+      ffmpegProc.once('error', error => { try { controller.error(error); } catch {} });
       ffmpegProc.stdout.on('data', (chunk) => {
         try {
           controller.enqueue(chunk);

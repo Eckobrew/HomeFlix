@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isRequestLocalOrTailscale } from '@/lib/network';
 import { getServerConfig } from '@/lib/config';
 import { JellyfinClient } from '@/lib/jellyfin';
+import { createSession, readSession } from '@/lib/session';
+import { allowLogin } from '@/lib/login-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,16 +22,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ users: [] });
     }
     try {
-      const users = await jellyfin.getUsers();
-      return NextResponse.json({
-        users: users.map((u) => ({
-          id: u.id,
-          name: u.name,
-          avatarUrl: jellyfin.getUserImageUrl(u.id),
-          avatarColor: u.avatarColor,
-          initials: u.initials,
-        })),
-      });
+      const response = await fetch(`${config.jellyfinUrl}/Users/Public`, { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      const users = response.ok ? await response.json() : [];
+      return NextResponse.json({ users: users.map((user: { Id: string; Name: string }) => ({ id: user.Id, name: user.Name, avatarUrl: jellyfin.getUserImageUrl(user.Id) })) });
     } catch (e) {
       console.error('Failed fetching Jellyfin users for auth:', e);
       return NextResponse.json({ users: [] });
@@ -40,14 +35,7 @@ export async function GET(request: NextRequest) {
   const netCheck = isRequestLocalOrTailscale(request);
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME)?.value;
 
-  let sessionUser: { id: string; name: string } | null = null;
-  if (sessionCookie) {
-    try {
-      sessionUser = JSON.parse(Buffer.from(sessionCookie, 'base64').toString('utf-8'));
-    } catch {
-      sessionUser = null;
-    }
-  }
+  const sessionUser = await readSession(sessionCookie, 'web');
 
   // If local or over Tailscale -> NO LOGIN REQUIRED!
   if (netCheck.isLocalOrTailscale) {
@@ -57,7 +45,7 @@ export async function GET(request: NextRequest) {
       isAuthenticated: true,
       clientIp: netCheck.clientIp,
       reason: netCheck.reason,
-      user: sessionUser || { name: 'Local User' },
+      user: sessionUser ? { id: sessionUser.id, name: sessionUser.name } : { name: 'Local User' },
     });
   }
 
@@ -69,7 +57,7 @@ export async function GET(request: NextRequest) {
       isAuthenticated: true,
       clientIp: netCheck.clientIp,
       reason: netCheck.reason,
-      user: sessionUser,
+      user: { id: sessionUser.id, name: sessionUser.name },
     });
   }
 
@@ -85,6 +73,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const origin = request.headers.get('origin');
+    if (origin && origin !== request.nextUrl.origin) return NextResponse.json({ error: 'Invalid origin' }, { status: 403 });
     const body = await request.json();
     const action = body.action || 'login';
 
@@ -95,8 +85,9 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
+    if (!allowLogin(request)) return NextResponse.json({ error: 'Too many login attempts. Try again in a minute.' }, { status: 429 });
     const { username, password } = body;
-    if (!username) {
+    if (typeof username !== 'string' || !username.trim() || (password !== undefined && typeof password !== 'string')) {
       return NextResponse.json(
         { success: false, error: 'Username is required' },
         { status: 400 }
@@ -137,14 +128,7 @@ export async function POST(request: NextRequest) {
 
     const authData = await authRes.json();
     const user = authData.User;
-    const sessionPayload = {
-      id: user.Id,
-      name: user.Name,
-      accessToken: authData.AccessToken,
-      timestamp: Date.now(),
-    };
-
-    const encodedSession = Buffer.from(JSON.stringify(sessionPayload)).toString('base64');
+    const encodedSession = await createSession({ id: user.Id, name: user.Name, admin: user.Policy?.IsAdministrator === true, accessToken: authData.AccessToken }, 'web');
 
     // Ensure profile exists in profiles.json for this Jellyfin user
     try {

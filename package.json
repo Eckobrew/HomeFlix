@@ -11,23 +11,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:mobile": "node scripts/test-mobile-api.mjs"
+    "test:mobile": "node scripts/test-mobile-api.mjs",
+    "test:playback": "node scripts/test-playback-capabilities.mjs"
   },
   "dependencies": {
     "hls.js": "^1.7.4",
     "lucide-react": "^0.460.0",
-    "next": "14.2.35",
-    "react": "^18",
-    "react-dom": "^18"
+    "next": "15.5.28",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
-    "typescript": "^5",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "eslint": "^8",
-    "eslint-config-next": "14.2.35"
+    "eslint-config-next": "15.5.28",
+    "postcss": "8.5.32",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "$postcss"
   }
 }

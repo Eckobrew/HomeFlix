@@ -1,3 +1,4 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
@@ -15,7 +16,7 @@ import { MediaItem, MediaRowSection } from '@/types';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const profileId =
     request.nextUrl.searchParams.get('userId') ||
     request.cookies.get('homeflix_profile_id')?.value;
@@ -352,3 +353,5 @@ export async function GET(request: NextRequest) {
     });
   }
 }
+
+export const GET = withJellyfinSession(handleGET);

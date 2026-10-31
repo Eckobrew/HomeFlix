@@ -91,13 +91,15 @@ export class SeerrClient {
     const relDate = item.releaseDate || item.firstAirDate;
     const year = relDate ? new Date(relDate).getFullYear() : undefined;
 
-    const posterUrl = item.posterPath
+    const rawPoster = item.posterPath
       ? `https://image.tmdb.org/t/p/w500${item.posterPath}`
       : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500&auto=format&fit=crop&q=80';
+    const posterUrl = `/api/mobile/v1/image?url=${encodeURIComponent(rawPoster)}`;
 
-    const backdropUrl = item.backdropPath
+    const rawBackdrop = item.backdropPath
       ? `https://image.tmdb.org/t/p/original${item.backdropPath}`
-      : posterUrl;
+      : rawPoster;
+    const backdropUrl = `/api/mobile/v1/image?url=${encodeURIComponent(rawBackdrop)}`;
 
     const status = this.mapStatus(item.mediaInfo?.status);
     const durationMinutes = (item as any).runtime || (item.mediaInfo as any)?.runtime || (item as any).durationMinutes;
@@ -534,6 +536,38 @@ export class SeerrClient {
     } catch (e) {
       console.error(`Error fetching recommendations from Seerr for ${mediaType} ${tmdbId}:`, e);
       return [];
+    }
+  }
+
+  async getMovieCollection(tmdbId: number): Promise<{ name?: string; overview?: string; parts: MediaItem[] } | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const res = await fetch(`${this.url}/api/v1/movie/${tmdbId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 3600 },
+      });
+      if (!res.ok) return null;
+      const movieData = await res.json();
+      const colId = movieData.collection?.id;
+      if (!colId) return null;
+
+      const colRes = await fetch(`${this.url}/api/v1/collection/${colId}`, {
+        headers: this.getHeaders(),
+        next: { revalidate: 3600 },
+      });
+      if (!colRes.ok) return null;
+      const colData = await colRes.json();
+      const parts = (colData.parts || []).map((p: any) =>
+        this.mapResult({ ...p, mediaType: 'movie' })
+      );
+      return {
+        name: colData.name,
+        overview: colData.overview,
+        parts,
+      };
+    } catch (e) {
+      console.error(`Error fetching collection for movie ${tmdbId}:`, e);
+      return null;
     }
   }
 

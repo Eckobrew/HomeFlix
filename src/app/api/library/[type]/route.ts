@@ -1,3 +1,4 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { resolveJellyfinUserId } from '@/lib/profiles';
@@ -26,11 +27,11 @@ interface JellyfinRawItem {
   };
 }
 
-export async function GET(
+async function handleGET(
   request: NextRequest,
-  { params }: { params: { type: string } }
+  { params }: { params: Promise<{ type: string }> }
 ) {
-  const libraryType = (params.type || '').toLowerCase();
+  const libraryType = ((await params).type || '').toLowerCase();
 
   if (!['movies', 'tv', 'youtube'].includes(libraryType)) {
     return NextResponse.json(
@@ -213,3 +214,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withJellyfinSession(handleGET);

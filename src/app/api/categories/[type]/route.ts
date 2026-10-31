@@ -1,3 +1,4 @@
+import { withJellyfinSession } from '@/lib/jellyfin-session';
 import { NextRequest, NextResponse } from 'next/server';
 import { JellyfinClient } from '@/lib/jellyfin';
 import { SeerrClient } from '@/lib/seerr';
@@ -53,11 +54,11 @@ const REQUEST_CATEGORIES: RequestCategoryDef[] = [
   { id: 'cat-req-documentary', title: 'Documentaries', seerrGenreId: 99, mediaType: 'movie' },
 ];
 
-export async function GET(
+async function handleGET(
   request: NextRequest,
-  { params }: { params: { type: string } }
+  { params }: { params: Promise<{ type: string }> }
 ) {
-  const typeParam = (params.type || '').toLowerCase();
+  const typeParam = ((await params).type || '').toLowerCase();
   const isMovies = typeParam === 'movies' || typeParam === 'movie';
   const isTv = typeParam === 'tv' || typeParam === 'series' || typeParam === 'shows';
   const isRequests = typeParam === 'requests' || typeParam === 'request';
@@ -200,3 +201,5 @@ export async function GET(
     );
   }
 }
+
+export const GET = withJellyfinSession(handleGET);

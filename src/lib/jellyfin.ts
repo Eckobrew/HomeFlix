@@ -1,5 +1,6 @@
 import { MediaItem, Season, Episode, SubtitleTrack, UserProfile } from '@/types';
 import { getServerConfig } from './config';
+import { requestJellyfinSession } from './jellyfin-session';
 
 export interface JellyfinItem {
   Id: string;
@@ -84,8 +85,9 @@ export class JellyfinClient {
   constructor(url?: string, apiKey?: string, userId?: string) {
     const config = getServerConfig();
     this.url = (url || config.jellyfinUrl).replace(/\/+$/, '');
-    this.apiKey = apiKey || config.jellyfinApiKey;
-    this.userId = userId || config.jellyfinUserId;
+    const session = !url && !apiKey ? requestJellyfinSession() : null;
+    this.apiKey = session?.accessToken || apiKey || config.jellyfinApiKey;
+    this.userId = session?.id || userId || config.jellyfinUserId;
   }
 
   isConfigured(): boolean {
@@ -147,8 +149,8 @@ export class JellyfinClient {
   }
 
   getUserImageUrl(userId: string): string {
-    if (!this.url || !userId) return '';
-    return `${this.url}/Users/${userId}/Images/Primary?quality=90`;
+    if (!userId) return '';
+    return `/api/mobile/v1/image?userId=${userId}&type=Primary`;
   }
 
   async findUserByName(name: string): Promise<{ id: string; name: string } | null> {
@@ -172,6 +174,47 @@ export class JellyfinClient {
       console.error('Error finding Jellyfin user by name:', e);
       return null;
     }
+  }
+
+  async findItemByTmdbId(tmdbId: number, type?: 'movie' | 'tv'): Promise<string | null> {
+    if (!this.isConfigured() || !tmdbId) return null;
+    try {
+      const uid = await this.getFirstUserId();
+      const includeTypes = type === 'movie' ? 'Movie' : type === 'tv' ? 'Series' : 'Movie,Series';
+      const res = await fetch(
+        `${this.url}/Users/${uid}/Items?Recursive=true&IncludeItemTypes=${includeTypes}&Fields=ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const strId = String(tmdbId);
+        const item = (data.Items || []).find((i: JellyfinItem) => i.ProviderIds?.Tmdb === strId);
+        if (item) return item.Id;
+      }
+    } catch (e) {
+      console.error(`Error finding Jellyfin item by TMDB ID ${tmdbId}:`, e);
+    }
+    return null;
+  }
+
+  async findItemByName(name: string, type?: 'movie' | 'tv'): Promise<string | null> {
+    if (!this.isConfigured() || !name) return null;
+    try {
+      const uid = await this.getFirstUserId();
+      const includeTypes = type === 'movie' ? 'Movie' : type === 'tv' ? 'Series' : 'Movie,Series';
+      const res = await fetch(
+        `${this.url}/Users/${uid}/Items?SearchTerm=${encodeURIComponent(name)}&IncludeItemTypes=${includeTypes}&Fields=ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const cleanName = name.trim().toLowerCase();
+        const item = (data.Items || []).find((i: JellyfinItem) => (i.Name || '').trim().toLowerCase() === cleanName)
+          || (data.Items || [])[0];
+        if (item) return item.Id;
+      }
+    } catch {}
+    return null;
   }
 
   async createUser(name: string): Promise<{ id: string; name: string } | null> {
@@ -287,7 +330,7 @@ export class JellyfinClient {
           avatarColor: palette.avatarColor,
           avatarBg: palette.avatarBg,
           initials,
-          avatarUrl: u.PrimaryImageTag ? `${this.url}/Users/${u.Id}/Images/Primary` : undefined,
+          avatarUrl: u.PrimaryImageTag ? `/api/mobile/v1/image?userId=${u.Id}&type=Primary` : undefined,
           isAdministrator: Boolean(u.Policy?.IsAdministrator),
         };
       });
@@ -298,25 +341,34 @@ export class JellyfinClient {
   }
 
   getImageUrl(itemId: string, type: 'Primary' | 'Backdrop' | 'Thumb' = 'Primary', maxWidth = 800): string {
-    if (!this.url || !itemId) return '';
-    return `${this.url}/Items/${itemId}/Images/${type}?maxWidth=${maxWidth}&quality=90`;
+    if (!itemId) return '';
+    return `/api/mobile/v1/image?itemId=${itemId}&type=${type}&maxWidth=${maxWidth}`;
   }
 
   getStreamUrl(itemId: string): string {
     if (!this.url || !itemId) return '';
-    return `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`;
+    return `${this.url}/Videos/${itemId}/stream?static=true&api_key=${this.apiKey}`;
   }
 
   async getPlaybackStream(
     itemId: string,
     options?: {
       canPlayHevc?: boolean;
+      receiver?: 'cast' | 'browser';
+      videoCodecs?: string[];
+      maxWidth?: number;
+      maxHeight?: number;
+      audioCodecs?: string[];
       forceTranscode?: boolean;
       startTimeTicks?: number;
     }
   ): Promise<{
     streamUrl: string;
     isTranscoding: boolean;
+    error?: string;
+    playMethod?: string;
+    sourceVideoCodec?: string;
+    sourceAudioCodec?: string;
     transcodeReasons?: string;
     playSessionId?: string;
     mediaSourceId?: string;
@@ -330,6 +382,12 @@ export class JellyfinClient {
       };
     }
 
+    let targetItemId = itemId;
+    const seerrMatch = itemId.match(/^seerr-(movie|tv)-(\d+)$/);
+    if (seerrMatch) targetItemId = await this.findItemByTmdbId(Number(seerrMatch[2]), seerrMatch[1] === 'movie' ? 'movie' : 'tv') || itemId;
+    const details = await this.getItemDetails(targetItemId);
+    if (details?.type === 'Series') targetItemId = details.playableEpisodeId || await this.getSeriesFirstPlayableEpisodeId(targetItemId) || targetItemId;
+
     try {
       const uid = await this.getFirstUserId();
       const startTimeTicksParam =
@@ -337,52 +395,38 @@ export class JellyfinClient {
           ? `&StartTimeTicks=${options.startTimeTicks}`
           : '';
 
-      const canDirectHevc = Boolean(options?.canPlayHevc && !options?.forceTranscode);
-      const directVideoCodecs = options?.forceTranscode
-        ? ''
-        : canDirectHevc
-        ? 'h264,hevc'
-        : 'h264';
-
-      const directPlayProfiles = directVideoCodecs
-        ? [
-            {
-              Container: 'mp4,m4v,mov',
-              Type: 'Video',
-              VideoCodec: directVideoCodecs,
-              AudioCodec: 'aac,mp3',
-            },
-          ]
-        : [];
-
+      const supportedVideoCodecs = options?.videoCodecs?.length ? options.videoCodecs : options?.canPlayHevc ? ['h264', 'hevc'] : ['h264'];
+      const directVideoCodecs = options?.forceTranscode ? '' : supportedVideoCodecs.join(',');
+      const containers = options?.receiver ? ['mp4', 'm4v', 'mov', 'webm'] : ['mkv', 'mp4', 'm4v', 'mov', 'webm', 'ts'];
+      const directPlayProfiles = directVideoCodecs ? containers.map(Container => ({
+        Container, Type: 'Video', VideoCodec: directVideoCodecs,
+        AudioCodec: options?.audioCodecs?.length ? options.audioCodecs.join(',') : 'aac,mp3',
+      })) : [];
+      const hlsProfile = { Container: 'ts', Type: 'Video', VideoCodec: 'h264', AudioCodec: 'aac', Protocol: 'hls', Context: 'Streaming',
+        MaxAudioChannels: options?.receiver === 'cast' && options?.forceTranscode ? '2' : undefined };
+      const progressiveProfile = { Container: 'mp4', Type: 'Video', VideoCodec: options?.forceTranscode ? 'h264' : supportedVideoCodecs.filter(codec => ['h264', 'hevc'].includes(codec)).join(',') || 'h264',
+        AudioCodec: 'aac', Protocol: 'http', Context: 'Streaming', MaxAudioChannels: options?.receiver === 'cast' && options?.forceTranscode ? '2' : undefined };
       const profilePayload = {
         StartTimeTicks: options?.startTimeTicks,
+        // Native clients load external subtitles themselves; do not burn a default track into video.
+        SubtitleStreamIndex: -1,
         DeviceProfile: {
           MaxStreamingBitrate: 120000000,
           DirectPlayProfiles: directPlayProfiles,
-          TranscodingProfiles: [
-            {
-              Container: 'ts',
-              Type: 'Video',
-              VideoCodec: 'h264',
-              AudioCodec: 'aac',
-              Protocol: 'hls',
-              Context: 'Streaming',
-            },
-            {
-              Container: 'mp4',
-              Type: 'Video',
-              VideoCodec: 'h264',
-              AudioCodec: 'aac',
-              Protocol: 'http',
-              Context: 'Streaming',
-            },
-          ],
+          CodecProfiles: options?.receiver === 'cast' ? [{
+            Type: 'Video', Conditions: [
+              { Condition: 'LessThanEqual', Property: 'Width', Value: String(options.maxWidth || 1920), IsRequired: true },
+              { Condition: 'LessThanEqual', Property: 'Height', Value: String(options.maxHeight || 1080), IsRequired: true },
+            ],
+          }] : [],
+          // Prefer a progressive remux when possible. Explicit compatibility
+          // mode selects H.264/AAC HLS as the final decoder fallback.
+          TranscodingProfiles: options?.forceTranscode ? [hlsProfile, progressiveProfile] : [progressiveProfile, hlsProfile],
         },
       };
 
       const res = await fetch(
-        `${this.url}/Items/${itemId}/PlaybackInfo?UserId=${uid}${startTimeTicksParam}`,
+        `${this.url}/Items/${encodeURIComponent(targetItemId)}/PlaybackInfo?UserId=${uid}${startTimeTicksParam}`,
         {
           method: 'POST',
           headers: {
@@ -397,9 +441,10 @@ export class JellyfinClient {
         const data = await res.json();
         const mediaSource = data.MediaSources?.[0];
         if (mediaSource) {
+          if (mediaSource.LocationType === 'Virtual') return { streamUrl: '', isTranscoding: false, error: 'Media file is not available' };
           let totalDurationTicks = mediaSource.RunTimeTicks;
           if (!totalDurationTicks || totalDurationTicks <= 0) {
-            const itemDetails = await this.getItemDetails(itemId);
+            const itemDetails = await this.getItemDetails(targetItemId);
             if (itemDetails?.totalDurationTicks) {
               totalDurationTicks = itemDetails.totalDurationTicks;
             }
@@ -408,33 +453,34 @@ export class JellyfinClient {
             ? totalDurationTicks / 10000000
             : undefined;
 
+          // Jellyfin can offer a transcode URL even when the strict receiver
+          // profile supports the original file. Prefer the original timeline.
+          if (!options?.forceTranscode && mediaSource.SupportsDirectPlay) {
+            return {
+              streamUrl: `${this.url}/Videos/${encodeURIComponent(targetItemId)}/stream.${encodeURIComponent(mediaSource.Container || 'mp4')}?api_key=${encodeURIComponent(this.apiKey)}&Static=true&MediaSourceId=${encodeURIComponent(mediaSource.Id)}`,
+              isTranscoding: false, playMethod: 'DirectPlay', sourceVideoCodec: mediaSource.MediaStreams?.find((s: { Type: string }) => s.Type === 'Video')?.Codec, sourceAudioCodec: mediaSource.MediaStreams?.find((s: { Type: string }) => s.Type === 'Audio')?.Codec, playSessionId: data.PlaySessionId, mediaSourceId: mediaSource.Id, totalDurationTicks, durationSeconds,
+            };
+          }
+          if (!options?.forceTranscode && mediaSource.SupportsDirectStream && mediaSource.DirectStreamUrl) {
+            return {
+              streamUrl: `${this.url}${mediaSource.DirectStreamUrl}`,
+              isTranscoding: false,
+              playMethod: 'DirectStream',
+              playSessionId: data.PlaySessionId,
+              mediaSourceId: mediaSource.Id,
+              totalDurationTicks,
+              durationSeconds,
+            };
+          }
+
           if (mediaSource.TranscodingUrl) {
             return {
               streamUrl: `${this.url}${mediaSource.TranscodingUrl}`,
               isTranscoding: true,
+              playMethod: 'Transcode',
+              sourceVideoCodec: mediaSource.MediaStreams?.find((s: { Type: string }) => s.Type === 'Video')?.Codec,
+              sourceAudioCodec: mediaSource.MediaStreams?.find((s: { Type: string }) => s.Type === 'Audio')?.Codec,
               transcodeReasons: mediaSource.TranscodeReasons?.join(', '),
-              playSessionId: data.PlaySessionId,
-              mediaSourceId: mediaSource.Id,
-              totalDurationTicks,
-              durationSeconds,
-            };
-          }
-
-          if (mediaSource.DirectStreamUrl) {
-            return {
-              streamUrl: `${this.url}${mediaSource.DirectStreamUrl}`,
-              isTranscoding: false,
-              playSessionId: data.PlaySessionId,
-              mediaSourceId: mediaSource.Id,
-              totalDurationTicks,
-              durationSeconds,
-            };
-          }
-
-          if (mediaSource.SupportsDirectPlay) {
-            return {
-              streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
-              isTranscoding: false,
               playSessionId: data.PlaySessionId,
               mediaSourceId: mediaSource.Id,
               totalDurationTicks,
@@ -447,10 +493,17 @@ export class JellyfinClient {
       console.error(`Error negotiating playback for item ${itemId}:`, e);
     }
 
-    return {
-      streamUrl: `${this.url}/Videos/${itemId}/stream.mp4?api_key=${this.apiKey}`,
-      isTranscoding: false,
-    };
+    return { streamUrl: '', isTranscoding: false, error: 'Jellyfin did not provide a compatible playback stream' };
+  }
+
+  async reportPlaybackStarted(itemId: string, positionTicks: number, isPaused = false): Promise<boolean> {
+    if (!this.isConfigured() || !itemId) return false;
+    const uid = await this.getFirstUserId();
+    const response = await fetch(`${this.url}/Sessions/Playing`, {
+      method: 'POST', headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ItemId: itemId, UserId: uid, PositionTicks: positionTicks, IsPaused: isPaused, CanSeek: true }),
+    });
+    return response.ok;
   }
 
   async reportPlaybackProgress(itemId: string, positionTicks: number, isPaused = false): Promise<boolean> {
@@ -674,8 +727,12 @@ export class JellyfinClient {
       source: 'jellyfin',
       jellyfinId: item.Id,
       seriesId: item.SeriesId,
+      seasonNumber: item.ParentIndexNumber,
+      episodeNumber: item.IndexNumber,
       seriesName: item.SeriesName,
-      tmdbId: item.ProviderIds?.Tmdb ? Number(item.ProviderIds.Tmdb) : undefined,
+      tmdbId: (item.ProviderIds?.Tmdb || item.ProviderIds?.tmdb || item.ProviderIds?.TheMovieDb)
+        ? Number(item.ProviderIds?.Tmdb || item.ProviderIds?.tmdb || item.ProviderIds?.TheMovieDb)
+        : undefined,
       status: 'available',
       played: Boolean(item.UserData?.Played),
       playbackPositionTicks: playbackTicks,
@@ -864,8 +921,8 @@ export class JellyfinClient {
         }
       }
 
-      await Promise.all(
-        seriesItems.map(async (series) => {
+      for (let offset = 0; offset < seriesItems.length; offset += 6) await Promise.all(
+        seriesItems.slice(offset, offset + 6).map(async (series) => {
           const nextUp = nextUpMap.get(series.id);
           const epId = nextUp?.epId || await this.getSeriesFirstPlayableEpisodeId(series.id);
           if (epId) {
@@ -945,6 +1002,29 @@ export class JellyfinClient {
     }
   }
 
+  async setWatched(itemId: string, played: boolean): Promise<boolean> {
+    const uid = await this.getFirstUserId();
+    const response = await fetch(`${this.url}/Users/${encodeURIComponent(uid)}/PlayedItems/${encodeURIComponent(itemId)}`, {
+      method: played ? 'POST' : 'DELETE', headers: this.getHeaders(), cache: 'no-store',
+    });
+    return response.ok;
+  }
+
+  async getEpisodeQueue(itemId: string): Promise<MediaItem[]> {
+    const uid = await this.getFirstUserId();
+    const response = await fetch(`${this.url}/Users/${encodeURIComponent(uid)}/Items/${encodeURIComponent(itemId)}`, { headers: this.getHeaders(), cache: 'no-store' });
+    if (!response.ok) throw new Error('Episode not found');
+    const current: JellyfinItem = await response.json();
+    const seriesId = current.Type === 'Series' ? current.Id : current.SeriesId;
+    if (!seriesId) return [];
+    const episodes = await fetch(`${this.url}/Shows/${encodeURIComponent(seriesId)}/Episodes?UserId=${encodeURIComponent(uid)}&IsMissing=false&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData,SeriesId,SeriesName&SortBy=ParentIndexNumber,IndexNumber&SortOrder=Ascending`, { headers: this.getHeaders(), cache: 'no-store' });
+    if (!episodes.ok) throw new Error('Episodes unavailable');
+    const data = await episodes.json();
+    return (data.Items || []).filter((episode: JellyfinItem) => episode.LocationType !== 'Virtual' && (current.ParentIndexNumber === 0 || (episode.ParentIndexNumber ?? 1) > 0))
+      .sort((a: JellyfinItem, b: JellyfinItem) => (a.ParentIndexNumber ?? 1) - (b.ParentIndexNumber ?? 1) || (a.IndexNumber ?? 0) - (b.IndexNumber ?? 0))
+      .map((episode: JellyfinItem) => this.mapJellyfinItem({ ...episode, Type: 'Episode', SeriesId: seriesId, SeriesName: episode.SeriesName || current.SeriesName || current.Name }));
+  }
+
   async getSeriesSeasons(seriesId: string): Promise<Season[]> {
     if (!this.isConfigured()) return [];
     try {
@@ -960,12 +1040,15 @@ export class JellyfinClient {
       if (!data.Items || data.Items.length === 0) {
         // Fallback: Fetch all episodes directly for the series and group by ParentIndexNumber
         const allEpRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData`,
+          `${this.url}/Shows/${seriesId}/Episodes?userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,ParentIndexNumber,LocationType,UserData,ImageTags`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         if (allEpRes.ok) {
           const allEpData = await allEpRes.json();
-          const epItems = (allEpData.Items || []).filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual');
+          const rawItems = allEpData.Items || [];
+          const epItems = rawItems.some((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            ? rawItems.filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            : rawItems;
           const seasonMap = new Map<number, Episode[]>();
           for (const ep of epItems) {
             const sNum = ep.ParentIndexNumber || 1;
@@ -976,6 +1059,7 @@ export class JellyfinClient {
             const epPlayed = Boolean(ep.UserData?.Played);
             seasonMap.get(sNum)!.push({
               id: ep.Id,
+              locationType: ep.LocationType,
               episodeNumber: ep.IndexNumber || 1,
               seasonNumber: sNum,
               name: ep.Name,
@@ -985,7 +1069,7 @@ export class JellyfinClient {
               playbackPositionTicks: epPlaybackTicks,
               progressPercent: epProgress,
               played: epPlayed,
-              thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+              thumbnailUrl: `/api/mobile/v1/image?itemId=${ep.Id}&type=Primary&maxWidth=400`,
               jellyfinId: ep.Id,
               videoStreamUrl: this.getStreamUrl(ep.Id),
             });
@@ -1006,21 +1090,24 @@ export class JellyfinClient {
       for (const s of data.Items || []) {
         // Fetch episodes for season
         const epRes = await fetch(
-          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType,UserData`,
+          `${this.url}/Shows/${seriesId}/Episodes?seasonId=${s.Id}&userId=${uid}&Fields=Overview,RunTimeTicks,IndexNumber,LocationType,UserData,ImageTags`,
           { headers: this.getHeaders(), cache: 'no-store' }
         );
         let episodes: Episode[] = [];
         if (epRes.ok) {
           const epData = await epRes.json();
-          episodes = (epData.Items || [])
-            .filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
-            .map((ep: JellyfinItem) => {
+          const rawItems = epData.Items || [];
+          const filtered = rawItems.some((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            ? rawItems.filter((ep: JellyfinItem) => ep.LocationType !== 'Virtual')
+            : rawItems;
+          episodes = filtered.map((ep: JellyfinItem) => {
               const epPlaybackTicks = ep.UserData?.PlaybackPositionTicks || 0;
               const epTotalTicks = ep.RunTimeTicks || 0;
               const epProgress = epTotalTicks > 0 ? Math.round((epPlaybackTicks / epTotalTicks) * 100) : 0;
               const epPlayed = Boolean(ep.UserData?.Played);
               return {
                 id: ep.Id,
+              locationType: ep.LocationType,
                 episodeNumber: ep.IndexNumber || 1,
                 seasonNumber: s.IndexNumber || 1,
                 name: ep.Name,
@@ -1030,7 +1117,7 @@ export class JellyfinClient {
                 playbackPositionTicks: epPlaybackTicks,
                 progressPercent: epProgress,
                 played: epPlayed,
-                thumbnailUrl: this.getImageUrl(ep.Id, 'Primary', 400),
+                thumbnailUrl: `/api/mobile/v1/image?itemId=${ep.Id}&type=Primary&maxWidth=400`,
                 jellyfinId: ep.Id,
                 videoStreamUrl: this.getStreamUrl(ep.Id),
               };
@@ -1050,6 +1137,35 @@ export class JellyfinClient {
       return seasons;
     } catch (e) {
       console.error('Error fetching seasons from Jellyfin:', e);
+      return [];
+    }
+  }
+
+  async getMovieCollection(itemId: string): Promise<MediaItem[]> {
+    if (!this.isConfigured() || !itemId) return [];
+    try {
+      const uid = await this.getFirstUserId();
+      const itemRes = await fetch(
+        `${this.url}/Users/${uid}/Items/${itemId}?Fields=Collections,ProviderIds`,
+        { headers: this.getHeaders(), cache: 'no-store' }
+      );
+      if (!itemRes.ok) return [];
+      const itemData = await itemRes.json();
+      const collections = itemData.Collections || [];
+      if (collections.length > 0) {
+        const colId = collections[0].Id;
+        const colItemsRes = await fetch(
+          `${this.url}/Users/${uid}/Items?ParentId=${colId}&SortBy=ProductionYear,SortName&SortOrder=Ascending&Fields=Overview,Genres,OfficialRating,CommunityRating,People,BackdropImageTags,ChildCount,RunTimeTicks,LocationType,MediaStreams,Width,Height,MediaSources`,
+          { headers: this.getHeaders(), cache: 'no-store' }
+        );
+        if (colItemsRes.ok) {
+          const colData = await colItemsRes.json();
+          return (colData.Items || []).map((i: JellyfinItem) => this.mapJellyfinItem(i));
+        }
+      }
+      return [];
+    } catch (e) {
+      console.error('Error fetching movie collection from Jellyfin:', e);
       return [];
     }
   }
